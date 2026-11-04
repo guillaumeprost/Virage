@@ -1,0 +1,180 @@
+name: Virage
+
+options:
+  bundleIdPrefix: com.guillaumeprost
+  deploymentTarget:
+    iOS: "18.0"
+    watchOS: "11.0"
+  createIntermediateGroups: true
+  # The interface is written in French: system controls (search, cancel…) follow it.
+  developmentLanguage: fr
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  Virage:
+    type: application
+    platform: iOS
+    sources:
+      - path: iOS
+      - path: Shared
+      - path: LiveActivity
+      # Icon Composer layers: the system renders them in light, dark, clear and tinted modes.
+      - path: Resources/AppIcon.icon
+        buildPhase: resources
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Virage
+        CFBundleDevelopmentRegion: fr
+        UILaunchScreen: {}
+        NSSupportsLiveActivities: true
+        # The speed changes every second during a ride.
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIBackgroundModes: [location]
+        UIRequiresFullScreen: true
+        # Opens .gpx files from Files, Mail or AirDrop, to follow the route they hold.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: GPX
+            LSItemContentTypes: [com.topografix.gpx]
+            LSHandlerRank: Alternate
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.topografix.gpx
+            UTTypeDescription: GPX
+            UTTypeConformsTo: [public.xml]
+            UTTypeTagSpecification:
+              public.filename-extension: [gpx]
+              public.mime-type: [application/gpx+xml]
+        LSSupportsOpeningDocumentsInPlace: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocationWhenInUseUsageDescription: "Virage utilise le GPS pour afficher ta vitesse et enregistrer tes trajets."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Virage continue de suivre ton trajet quand l'écran est verrouillé."
+        NSMotionUsageDescription: "Virage utilise le gyroscope pour calculer l'angle d'inclinaison de la moto."
+        NSHealthShareUsageDescription: "Virage démarre l'app Apple Watch en même temps que ton trajet."
+        NSHealthUpdateUsageDescription: "Virage démarre l'app Apple Watch en même temps que ton trajet."
+    entitlements:
+      path: iOS/Virage.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.guillaumeprost.Virage
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - target: VirageWatch
+      - target: VirageWidgets
+
+  # The Live Activity on the lock screen and in the Dynamic Island.
+  VirageWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+      - path: LiveActivity
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Virage
+        CFBundleDevelopmentRegion: fr
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.guillaumeprost.Virage.widgets
+        TARGETED_DEVICE_FAMILY: "1"
+
+  VirageWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Watch
+      - path: Shared
+      - path: WatchShared
+      - path: Resources/AppIcon.icon
+        buildPhase: resources
+    info:
+      path: Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Virage
+        CFBundleDevelopmentRegion: fr
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.guillaumeprost.Virage
+        WKBackgroundModes: [workout-processing]
+        NSLocationWhenInUseUsageDescription: "Virage utilise le GPS de la montre quand l'iPhone n'est pas disponible."
+        NSHealthShareUsageDescription: "Virage lance une session d'activité pour rester affiché pendant le trajet."
+        NSHealthUpdateUsageDescription: "Virage lance une session d'activité pour rester affiché pendant le trajet."
+    entitlements:
+      path: Watch/VirageWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        # Shared with the complications, which read the ride from it.
+        com.apple.security.application-groups: [group.com.guillaumeprost.Virage]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.guillaumeprost.Virage.watchkitapp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Built as part of the iPhone app, a Debug build would otherwise target only the iPhone's
+        # architecture, and a watch with a different chip (arm64_32) rejects it as incompatible.
+        ONLY_ACTIVE_ARCH: NO
+    dependencies:
+      - target: VirageWatchWidgets
+
+  # Complications and the Smart Stack widget.
+  VirageWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: WatchWidgets
+      - path: WatchShared
+    info:
+      path: WatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Virage
+        CFBundleDevelopmentRegion: fr
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: WatchWidgets/VirageWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.guillaumeprost.Virage]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.guillaumeprost.Virage.watchkitapp.widgets
+        ONLY_ACTIVE_ARCH: NO
+
+  VirageTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Virage
+
+schemes:
+  Virage:
+    build:
+      targets:
+        Virage: all
+    test:
+      targets:
+        - VirageTests
+  # Runs the Watch app on its own in a watchOS simulator, paired with the iPhone one.
+  VirageWatch:
+    build:
+      targets:
+        VirageWatch: all
