@@ -27,6 +27,9 @@ struct RideSnapshot: Codable, Equatable, Sendable {
     /// Time spent in finished pauses; a pause in progress counts from `pausedAt`.
     var pausedDuration: TimeInterval = 0
     var pausedAt: Date?
+    /// Meters left in the tank, when the rider tracks it.
+    var fuelRemaining: Double?
+    var isFuelLow = false
 
     /// The start shifted by the pauses: a timer counting up from here shows the ride time without them.
     var timerStart: Date? {

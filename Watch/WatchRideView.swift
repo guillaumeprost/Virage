@@ -482,6 +482,12 @@ private struct TotalsPage: View {
                 Spacer(minLength: 0)
                 Metric(label: "MAX", value: Format.speed(snapshot.maxSpeed, unit), unit: unit.speedLabel, color: .red, size: 30, alignment: .trailing)
             }
+            if let fuel = snapshot.fuelRemaining {
+                Label(Format.range(fuel, unit), systemImage: snapshot.isFuelLow ? "fuelpump.exclamationmark.fill" : "fuelpump.fill")
+                    .font(.system(.footnote, design: .rounded, weight: .semibold))
+                    .foregroundStyle(snapshot.isFuelLow ? .red : .secondary)
+                    .monospacedDigit()
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }

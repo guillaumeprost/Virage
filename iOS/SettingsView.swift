@@ -3,6 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage(SpeedUnit.storageKey) private var unit = SpeedUnit.kilometersPerHour
     @AppStorage(Appearance.storageKey) private var appearance = Appearance.system
+    @AppStorage(FuelSettings.enabledKey) private var tracksFuel = false
+    @AppStorage(FuelSettings.rangeKey) private var fuelRange = FuelSettings.defaultRangeKilometers
+    @AppStorage(FuelSettings.reserveKey) private var fuelReserve = FuelSettings.defaultReserveKilometers
+    @Environment(RideEngine.self) private var engine
 
     var body: some View {
         NavigationStack {
@@ -27,6 +31,31 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                 }
+                Section {
+                    Toggle("Suivre l'autonomie", isOn: $tracksFuel)
+                    if tracksFuel {
+                        Stepper(value: $fuelRange, in: 50...800, step: 10) {
+                            LabeledContent("Avec un plein", value: "\(Int(fuelRange)) km")
+                        }
+                        Stepper(value: $fuelReserve, in: 10...150, step: 5) {
+                            LabeledContent("Prévenir à", value: "\(Int(fuelReserve)) km")
+                        }
+                        Button("Plein fait", systemImage: "fuelpump.fill") {
+                            engine.refuel()
+                        }
+                    }
+                } header: {
+                    Text("Carburant")
+                } footer: {
+                    if tracksFuel, let fuel = engine.fuel {
+                        Text("Il reste environ \(Int(fuel.remaining / 1_000)) km sur ce plein, d'après les trajets enregistrés sur l'iPhone et la montre. Touche « Plein fait » à la pompe.")
+                    } else {
+                        Text("Virage compte les kilomètres depuis le dernier plein, te prévient à l'approche de la réserve et trouve les stations sur ta route.")
+                    }
+                }
+                .onChange(of: tracksFuel) { engine.reloadFuel() }
+                .onChange(of: fuelRange) { engine.reloadFuel() }
+                .onChange(of: fuelReserve) { engine.reloadFuel() }
                 Section {
                     Text("L'inclinaison est calculée à partir de la vitesse et de la rotation de la moto dans les virages. Elle fonctionne quelle que soit la fixation du téléphone, mais seulement au-dessus de 10 km/h.")
                         .font(.footnote)

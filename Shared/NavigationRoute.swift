@@ -79,13 +79,40 @@ struct RouteStop: Codable, Equatable, Sendable {
     var distanceAlongRoute: Double
 }
 
+/// Which roads Apple Maps may choose.
+enum RouteStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Apple Maps' own choice: the quickest.
+    case fastest
+    case noHighways
+    /// No highway, and among the routes offered the most winding one that costs little extra time.
+    case winding
+
+    var id: Self { self }
+
+    var label: String {
+        switch self {
+        case .fastest: "Rapide"
+        case .noHighways: "Sans autoroute"
+        case .winding: "Plaisir"
+        }
+    }
+}
+
+struct RouteOptions: Codable, Hashable, Sendable {
+    var style = RouteStyle.fastest
+    var avoidsTolls = false
+
+    var avoidsHighways: Bool { style != .fastest }
+}
+
 /// A planned trip, sent from the iPhone to the Watch.
 struct NavigationRoute: Codable, Identifiable, Sendable {
     var id = UUID()
     var destinationName: String
     var destination: Coordinate
     var mode: NavigationMode
-    var avoidsTolls: Bool
+    /// What it was planned with, so that rerouting plans alike.
+    var options: RouteOptions
     /// The route geometry; empty in compass mode.
     var points: [Coordinate] = []
     var steps: [RouteStep] = []
@@ -161,7 +188,7 @@ enum RouteBuilder {
         steps: [(instruction: String, points: [Coordinate])],
         destinationName: String,
         destination: Coordinate,
-        avoidsTolls: Bool,
+        options: RouteOptions,
         expectedTravelTime: TimeInterval
     ) -> NavigationRoute {
         var points: [Coordinate] = []
@@ -198,7 +225,7 @@ enum RouteBuilder {
             destinationName: destinationName,
             destination: destination,
             mode: .route,
-            avoidsTolls: avoidsTolls,
+            options: options,
             points: points,
             steps: routeSteps,
             distance: total,
@@ -213,7 +240,7 @@ enum RouteBuilder {
         stops: [Waypoint],
         destinationName: String,
         destination: Coordinate,
-        avoidsTolls: Bool
+        options: RouteOptions
     ) -> NavigationRoute {
         precondition(legs.count == stops.count + 1, "one leg more than stops")
         var points: [Coordinate] = []
@@ -247,7 +274,7 @@ enum RouteBuilder {
             destinationName: destinationName,
             destination: destination,
             mode: .route,
-            avoidsTolls: avoidsTolls,
+            options: options,
             points: points,
             steps: steps,
             distance: offset,
@@ -270,5 +297,50 @@ enum RouteBuilder {
         let incoming = Geo.bearing(points[before], points[index])
         let outgoing = Geo.bearing(points[index], points[after])
         return Geo.turn(from: incoming, to: outgoing)
+    }
+}
+
+extension RouteBuilder {
+    /// A winding route may take this much longer than the quickest one offered, and no more.
+    static let windingExtraTime = 1.3
+    /// How far apart the line is sampled to measure its bends: shorter, and junction wiggles count as bends.
+    static let windinessSpacing = 50.0
+
+    /// How much the road turns, in degrees of heading change per kilometer. A straight road is near 0, a
+    /// mountain pass in the hundreds.
+    static func windiness(of points: [Coordinate]) -> Double {
+        // Resampled at even spacing, so densely drawn stretches do not weigh more than sparse ones.
+        var samples: [Coordinate] = []
+        var length = 0.0
+        var sinceLast = 0.0
+        for (index, point) in points.enumerated() {
+            if index == 0 {
+                samples.append(point)
+                continue
+            }
+            let step = Geo.distance(points[index - 1], point)
+            length += step
+            sinceLast += step
+            if sinceLast >= windinessSpacing {
+                samples.append(point)
+                sinceLast = 0
+            }
+        }
+        guard samples.count >= 3, length > 0 else { return 0 }
+        var turning = 0.0
+        for index in samples.indices.dropFirst().dropLast() {
+            let incoming = Geo.bearing(samples[index - 1], samples[index])
+            let outgoing = Geo.bearing(samples[index], samples[index + 1])
+            turning += abs(Geo.turn(from: incoming, to: outgoing))
+        }
+        return turning / (length / 1_000)
+    }
+
+    /// The most winding of the routes Apple Maps offered, among those close enough in time to the quickest.
+    static func mostWinding(_ routes: [NavigationRoute]) -> NavigationRoute? {
+        guard let quickest = routes.map(\.expectedTravelTime).min() else { return nil }
+        return routes
+            .filter { $0.expectedTravelTime <= quickest * windingExtraTime }
+            .max { windiness(of: $0.points) < windiness(of: $1.points) }
     }
 }

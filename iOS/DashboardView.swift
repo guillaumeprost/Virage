@@ -14,6 +14,7 @@ struct DashboardView: View {
     }
 
     @State private var isConfirmingEnd = false
+    @State private var isShowingFuel = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
@@ -42,6 +43,11 @@ struct DashboardView: View {
         .toolbarVisibility(verticalSizeClass == .compact ? .hidden : .automatic, for: .tabBar)
         .persistentSystemOverlays(snapshot.isRiding ? .hidden : .automatic)
         .background(Color(.systemBackground).ignoresSafeArea())
+        .sheet(isPresented: $isShowingFuel) {
+            FuelSheet()
+        }
+        // Reaching the reserve: felt in the hand, since the badge turning red is easy to miss on the road.
+        .sensoryFeedback(.warning, trigger: engine.fuelWarnings)
         .confirmationDialog("Terminer le trajet ?", isPresented: $isConfirmingEnd, titleVisibility: .visible) {
             Button("Terminer le trajet", role: .destructive) {
                 engine.stopRide()
@@ -115,6 +121,9 @@ struct DashboardView: View {
             VStack(spacing: 0) {
                 place(banner, .banner)
                 Spacer(minLength: 0)
+                fuelBadge
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.bottom, 8)
                 HStack(spacing: 16) {
                     place(speed(snapshot, size: 88), .speed)
                     place(compactMetrics(snapshot), .metrics)
@@ -141,6 +150,7 @@ struct DashboardView: View {
                 VStack(spacing: 12) {
                     place(speed(snapshot, size: 110), .speed)
                     place(compactMetrics(snapshot), .metrics)
+                    fuelBadge
                     Spacer(minLength: 0)
                     place(rideControls(), .button)
                 }
@@ -178,12 +188,20 @@ struct DashboardView: View {
                     .foregroundStyle(.red)
             }
             Spacer()
+            fuelBadge
             if connectivity.isWatchAppInstalled {
                 Image(systemName: connectivity.isWatchReachable ? "applewatch.radiowaves.left.and.right" : "applewatch.slash")
                     .foregroundStyle(connectivity.isWatchReachable ? .green : .secondary)
             }
         }
         .font(.subheadline.weight(.semibold))
+    }
+
+    @ViewBuilder
+    private var fuelBadge: some View {
+        if let fuel = engine.fuel {
+            FuelBadge(fuel: fuel) { isShowingFuel = true }
+        }
     }
 
     @ViewBuilder

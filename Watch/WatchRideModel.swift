@@ -76,12 +76,12 @@ final class WatchRideModel: NSObject {
 
     /// A destination chosen on the wrist. The route is planned here, so it works without the iPhone; when the
     /// iPhone is in reach it gets the route too and takes over rerouting.
-    func navigate(to place: SavedPlace, mode: NavigationMode, avoidsTolls: Bool) async throws {
+    func navigate(to place: SavedPlace, mode: NavigationMode, options: RouteOptions) async throws {
         let route = switch mode {
         case .compass:
             RoutePlanner.compass(to: place.coordinate, named: place.name)
         case .route:
-            try await planRoute(to: place, avoidsTolls: avoidsTolls)
+            try await planRoute(to: place, options: options)
         }
         setRoute(route)
         startRide()
@@ -90,12 +90,12 @@ final class WatchRideModel: NSObject {
 
     /// Apple Maps sometimes fails for a moment (a timeout, a road closure being updated): one retry spares the
     /// rider tapping again with gloves on.
-    private func planRoute(to place: SavedPlace, avoidsTolls: Bool) async throws -> NavigationRoute {
+    private func planRoute(to place: SavedPlace, options: RouteOptions) async throws -> NavigationRoute {
         do {
-            return try await RoutePlanner.route(to: place.coordinate, named: place.name, from: snapshot.position, avoidsTolls: avoidsTolls)
+            return try await RoutePlanner.route(to: place.coordinate, named: place.name, from: snapshot.position, options: options)
         } catch {
             try await Task.sleep(for: .seconds(1))
-            return try await RoutePlanner.route(to: place.coordinate, named: place.name, from: snapshot.position, avoidsTolls: avoidsTolls)
+            return try await RoutePlanner.route(to: place.coordinate, named: place.name, from: snapshot.position, options: options)
         }
     }
 
@@ -225,7 +225,7 @@ final class WatchRideModel: NSObject {
                 named: route.destinationName,
                 via: remainingStops,
                 from: position,
-                avoidsTolls: route.avoidsTolls
+                options: route.options
             ), guidance?.route.destination == route.destination else { return }
             guidance = Guidance(route: newRoute)
             updateGuidance()
@@ -311,6 +311,10 @@ final class WatchRideModel: NSObject {
 
     private func receive(_ phoneSnapshot: RideSnapshot, unit: SpeedUnit) {
         self.unit = unit
+        // The iPhone counts the tank; the wrist feels the reserve, once per tank.
+        if phoneSnapshot.isRiding, phoneSnapshot.isFuelLow, !snapshot.isFuelLow, snapshot.fuelRemaining != nil {
+            Haptics.playFuelAlert()
+        }
         if phoneSnapshot.isRiding {
             lastPhoneUpdate = .now
             phoneJoinedRide = true

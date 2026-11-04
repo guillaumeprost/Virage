@@ -79,6 +79,10 @@ extension RouteBuilder {
     static let trackTurnAngle = 45.0
     /// Two turns closer than this along a track are one bend: only the sharpest is announced.
     static let trackTurnSpacing = 60.0
+    /// Turns closer together than this make a run of bends, as on a pass.
+    static let trackBendGap = 250.0
+    /// A run of at least this many bends is announced once, at its first, rather than bend by bend.
+    static let trackBendRun = 3
     /// For the time estimate: a winding road, ridden at a steady pace.
     static let trackAverageSpeed = 15.0
 
@@ -111,9 +115,31 @@ extension RouteBuilder {
             }
         }
 
-        var steps = turns.map { turn in
-            let maneuver = Maneuver.from(turnAngle: turn.angle)
-            return RouteStep(instruction: maneuver.trackInstruction, maneuver: maneuver, distanceAlongRoute: cumulative[turn.index])
+        // On a pass, a call at every hairpin is noise: the rider sees the bends coming. One call warns of the
+        // run, with the direction of its first bend.
+        var runs: [[(index: Int, angle: Double)]] = []
+        for turn in turns {
+            if let last = runs.last?.last, cumulative[turn.index] - cumulative[last.index] < trackBendGap {
+                runs[runs.count - 1].append(turn)
+            } else {
+                runs.append([turn])
+            }
+        }
+        var steps: [RouteStep] = []
+        for run in runs {
+            if run.count >= trackBendRun, let first = run.first, let last = run.last {
+                let length = cumulative[last.index] - cumulative[first.index]
+                steps.append(RouteStep(
+                    instruction: "\(run.count) virages sur \(Self.roundedLength(length))",
+                    maneuver: .from(turnAngle: first.angle),
+                    distanceAlongRoute: cumulative[first.index]
+                ))
+            } else {
+                steps += run.map { turn in
+                    let maneuver = Maneuver.from(turnAngle: turn.angle)
+                    return RouteStep(instruction: maneuver.trackInstruction, maneuver: maneuver, distanceAlongRoute: cumulative[turn.index])
+                }
+            }
         }
         steps.append(RouteStep(instruction: track.name, maneuver: .arrive, distanceAlongRoute: total))
 
@@ -121,13 +147,23 @@ extension RouteBuilder {
             destinationName: track.name,
             destination: destination,
             mode: .route,
-            avoidsTolls: false,
+            options: RouteOptions(),
             points: points,
             steps: steps,
             distance: total,
             expectedTravelTime: total / trackAverageSpeed,
             followsTrack: true
         )
+    }
+}
+
+extension RouteBuilder {
+    /// "800 m", "2,5 km": the length of a run of bends, as said aloud.
+    static func roundedLength(_ meters: Double) -> String {
+        if meters < 1_000 {
+            return "\(Int((meters / 100).rounded()) * 100) m"
+        }
+        return (meters / 1_000).formatted(.number.precision(.fractionLength(0...1)).locale(Locale(identifier: "fr_FR"))) + " km"
     }
 }
 

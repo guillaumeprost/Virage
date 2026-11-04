@@ -38,6 +38,39 @@ final class NavigationController {
         }
     }
 
+    /// A stop to make first, before those already planned: a fuel station on the way.
+    func insertStop(_ stop: Waypoint) async throws {
+        guard let guidance, guidance.route.mode == .route, !guidance.route.followsTrack else { return }
+        let route = guidance.route
+        let position = lastPosition
+        isRerouting = true
+        defer { isRerouting = false }
+        var attempt = 1
+        while true {
+            do {
+                let newRoute = try await RoutePlanner.route(
+                    to: route.destination,
+                    named: route.destinationName,
+                    via: [stop] + guidance.remainingStops,
+                    from: position,
+                    options: route.options
+                )
+                guard self.guidance?.route.id == route.id else { return }
+                start(newRoute, from: position)
+                return
+            } catch where attempt < 3 {
+                attempt += 1
+                try await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// Whether `insertStop` can add to the current guidance; otherwise a place is navigated to directly.
+    var acceptsStops: Bool {
+        guard let route = guidance?.route else { return false }
+        return route.mode == .route && !route.followsTrack
+    }
+
     /// `position` fills the guidance right away instead of waiting for the next fix, which never comes while stopped.
     func start(_ route: NavigationRoute, from position: Coordinate?) {
         guidance = Guidance(route: route)
@@ -78,7 +111,7 @@ final class NavigationController {
                 named: route.destinationName,
                 via: remainingStops,
                 from: position,
-                avoidsTolls: route.avoidsTolls
+                options: route.options
             ) else { return }
             // Navigation may have been stopped while the request was in flight.
             guard guidance?.route.destination == route.destination else { return }

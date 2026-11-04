@@ -76,7 +76,7 @@ struct TrackPreviewView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("≈ " + Duration.seconds(route.expectedTravelTime).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)))
                         .font(.title2.weight(.bold))
-                    Text("\(Format.distance(route.distance, unit)) · \(route.steps.count - 1) virages annoncés")
+                    Text("\(Format.distance(route.distance, unit)) · \(Format.announcements(route.steps.count - 1))")
                         .foregroundStyle(.secondary)
                 }
                 if let position = engine.snapshot.position, let start = route.points.first, Geo.distance(position, start) > 300 {

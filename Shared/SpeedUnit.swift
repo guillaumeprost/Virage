@@ -52,6 +52,16 @@ enum Format {
         String(format: "%.1f %@", unit.distance(meters), unit.distanceLabel)
     }
 
+    /// "1 annonce", "12 annonces": the calls the guidance will make.
+    static func announcements(_ count: Int) -> String {
+        count == 1 ? "1 annonce" : "\(count) annonces"
+    }
+
+    /// What is left in the tank: whole kilometers, as on the bike's own display.
+    static func range(_ meters: Double, _ unit: SpeedUnit) -> String {
+        "\(Int(unit.distance(meters).rounded())) \(unit.distanceLabel)"
+    }
+
     /// Distance to a turn: rounded to 10 m (or 50 ft) up close, where the rider needs precision.
     static func shortDistance(_ meters: Double, _ unit: SpeedUnit) -> String {
         switch unit {

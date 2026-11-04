@@ -80,6 +80,8 @@ struct DestinationSearchView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \RecentDestination.lastUsed, order: .reverse) private var recents: [RecentDestination]
     @Query private var favorites: [FavoritePlace]
+    @Query(sort: \SavedTrack.lastUsed, order: .reverse) private var tracks: [SavedTrack]
+    @AppStorage(SpeedUnit.storageKey) private var unit = SpeedUnit.kilometersPerHour
     @State private var search = DestinationSearch()
     @State private var destination: Destination?
     /// Static: the view is rebuilt after each ride, and the demo must open only once per launch.
@@ -126,6 +128,20 @@ struct DestinationSearchView: View {
                             }
                         }
                     }
+                    if !tracks.isEmpty {
+                        Section("Traces GPX") {
+                            ForEach(tracks) { saved in
+                                Button {
+                                    importedTrack = saved.track
+                                } label: {
+                                    PlaceRow(title: saved.name, subtitle: Format.distance(saved.distance, unit), systemImage: "point.topleft.down.to.point.bottomright.filled.curvepath")
+                                }
+                            }
+                            .onDelete { offsets in
+                                offsets.map { tracks[$0] }.forEach(modelContext.delete)
+                            }
+                        }
+                    }
                 } else {
                     ForEach(search.results, id: \.self) { completion in
                         Button {
@@ -156,6 +172,12 @@ struct DestinationSearchView: View {
                 if let initialDestination, !Self.openedInitialDestination {
                     Self.openedInitialDestination = true
                     destination = initialDestination
+                }
+            }
+            // Every track opened, picked here or sent from another app, joins the library.
+            .onChange(of: importedTrack, initial: true) {
+                if let importedTrack {
+                    SavedTrack.save(importedTrack, in: modelContext)
                 }
             }
             .navigationDestination(item: $importedTrack) { track in
@@ -367,6 +389,7 @@ struct RoutePreviewView: View {
     @AppStorage(SpeedUnit.storageKey) private var unit = SpeedUnit.kilometersPerHour
     @AppStorage("navigationMode") private var mode = NavigationMode.route
     @AppStorage("avoidsTolls") private var avoidsTolls = false
+    @AppStorage("routeStyle") private var routeStyle = RouteStyle.fastest
     @State private var route: NavigationRoute?
     @State private var failure: String?
     /// Set when no toll-free route exists and the one shown uses tolls.
@@ -440,7 +463,7 @@ struct RoutePreviewView: View {
                 camera = .rect(bounds.insetBy(dx: -bounds.width * 0.15, dy: -bounds.height * 0.15))
             }
         }
-        .task(id: "\(avoidsTolls)-\(attempt)-\(stops.map(\.name))") {
+        .task(id: "\(avoidsTolls)-\(routeStyle)-\(attempt)-\(stops.map(\.name))") {
             await plan()
         }
         .onAppear {
@@ -477,11 +500,12 @@ struct RoutePreviewView: View {
         let origin = engine.snapshot.position
         let waypoints = stops.map { Waypoint(name: $0.name, coordinate: $0.coordinate) }
         func attempt(avoidingTolls: Bool) async throws -> NavigationRoute {
+            let options = RouteOptions(style: routeStyle, avoidsTolls: avoidingTolls)
             do {
-                return try await RoutePlanner.route(to: destination.coordinate, named: destination.name, via: waypoints, from: origin, avoidsTolls: avoidingTolls)
+                return try await RoutePlanner.route(to: destination.coordinate, named: destination.name, via: waypoints, from: origin, options: options)
             } catch {
                 try await Task.sleep(for: .seconds(1))
-                return try await RoutePlanner.route(to: destination.coordinate, named: destination.name, via: waypoints, from: origin, avoidsTolls: avoidingTolls)
+                return try await RoutePlanner.route(to: destination.coordinate, named: destination.name, via: waypoints, from: origin, options: options)
             }
         }
         do {
@@ -514,6 +538,12 @@ struct RoutePreviewView: View {
 
             if mode == .route {
                 stopList
+                Picker("Routes", selection: $routeStyle) {
+                    ForEach(RouteStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
                 Toggle("Éviter les péages", isOn: $avoidsTolls)
             }
 
@@ -571,7 +601,12 @@ struct RoutePreviewView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(Duration.seconds(route.expectedTravelTime).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)))
                         .font(.title2.weight(.bold))
-                    Text("\(Format.distance(route.distance, unit)) · \(route.steps.count - 1) virages annoncés")
+                    Text("\(Format.distance(route.distance, unit)) · \(Format.announcements(route.steps.count - 1))")
+                        .foregroundStyle(.secondary)
+                }
+                if routeStyle == .winding {
+                    Label("Sans autoroute, par les routes les plus sinueuses proposées", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 if usesTollsAnyway {

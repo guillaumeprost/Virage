@@ -140,7 +140,7 @@ struct Guidance: Sendable {
                     named: route.destinationName,
                     via: Array(remaining.dropFirst()),
                     from: position,
-                    avoidsTolls: route.avoidsTolls
+                    options: route.options
                 )
             } catch where attempt < 3 {
                 attempt += 1

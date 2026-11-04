@@ -9,17 +9,17 @@ enum RoutePlanner {
         named destinationName: String,
         via stops: [Waypoint] = [],
         from origin: Coordinate? = nil,
-        avoidsTolls: Bool
+        options: RouteOptions
     ) async throws -> NavigationRoute {
         guard !stops.isEmpty else {
-            return try await leg(to: destination, named: destinationName, from: origin, avoidsTolls: avoidsTolls)
+            return try await leg(to: destination, named: destinationName, from: origin, options: options)
         }
         let ends = stops.map { ($0.coordinate, $0.name) } + [(destination, destinationName)]
         let starts: [Coordinate?] = [origin] + stops.map(\.coordinate)
         let legs = try await withThrowingTaskGroup(of: (Int, NavigationRoute).self) { group in
             for index in ends.indices {
                 group.addTask {
-                    (index, try await leg(to: ends[index].0, named: ends[index].1, from: starts[index], avoidsTolls: avoidsTolls))
+                    (index, try await leg(to: ends[index].0, named: ends[index].1, from: starts[index], options: options))
                 }
             }
             var legs: [(Int, NavigationRoute)] = []
@@ -28,30 +28,37 @@ enum RoutePlanner {
             }
             return legs.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        return RouteBuilder.join(legs, stops: stops, destinationName: destinationName, destination: destination, avoidsTolls: avoidsTolls)
+        return RouteBuilder.join(legs, stops: stops, destinationName: destinationName, destination: destination, options: options)
     }
 
     private static func leg(
         to destination: Coordinate,
         named destinationName: String,
         from origin: Coordinate?,
-        avoidsTolls: Bool
+        options: RouteOptions
     ) async throws -> NavigationRoute {
         let request = MKDirections.Request()
         request.source = origin.map(mapItem) ?? .forCurrentLocation()
         request.destination = mapItem(destination)
         // MapKit has no motorcycle profile; driving is the closest.
         request.transportType = .automobile
-        request.tollPreference = avoidsTolls ? .avoid : .any
+        request.tollPreference = options.avoidsTolls ? .avoid : .any
+        request.highwayPreference = options.avoidsHighways ? .avoid : .any
+        request.requestsAlternateRoutes = options.style == .winding
         let response = try await MKDirections(request: request).calculate()
-        guard let route = response.routes.first else { throw MKError(.directionsNotFound) }
-        return RouteBuilder.build(
-            steps: route.steps.map { ($0.instructions, coordinates(of: $0.polyline)) },
-            destinationName: destinationName,
-            destination: destination,
-            avoidsTolls: avoidsTolls,
-            expectedTravelTime: route.expectedTravelTime
-        )
+        let candidates = response.routes.map { route in
+            RouteBuilder.build(
+                steps: route.steps.map { ($0.instructions, coordinates(of: $0.polyline)) },
+                destinationName: destinationName,
+                destination: destination,
+                options: options,
+                expectedTravelTime: route.expectedTravelTime
+            )
+        }
+        guard let route = options.style == .winding ? RouteBuilder.mostWinding(candidates) : candidates.first else {
+            throw MKError(.directionsNotFound)
+        }
+        return route
     }
 
     /// Why Apple Maps gave no route, in words a rider can act on, with the code for a bug report.
@@ -75,7 +82,7 @@ enum RoutePlanner {
     }
 
     static func compass(to destination: Coordinate, named destinationName: String) -> NavigationRoute {
-        NavigationRoute(destinationName: destinationName, destination: destination, mode: .compass, avoidsTolls: false)
+        NavigationRoute(destinationName: destinationName, destination: destination, mode: .compass, options: RouteOptions())
     }
 
     static func mapItem(_ coordinate: Coordinate) -> MKMapItem {

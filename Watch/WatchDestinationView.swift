@@ -128,6 +128,7 @@ private extension SavedPlace {
 private struct WatchDestinationConfirmView: View {
     @Environment(WatchRideModel.self) private var model
     @AppStorage(WatchSettings.avoidsTollsKey) private var avoidsTolls = true
+    @AppStorage(WatchSettings.routeStyleKey) private var routeStyle = RouteStyle.fastest
     @State private var mode = NavigationMode.route
     @State private var isPlanning = false
     @State private var failure: String?
@@ -153,6 +154,11 @@ private struct WatchDestinationConfirmView: View {
                 Label("Boussole", systemImage: "safari").tag(NavigationMode.compass)
             }
             if mode == .route {
+                Picker("Routes", selection: $routeStyle) {
+                    ForEach(RouteStyle.allCases) { style in
+                        Text(style.label).tag(style)
+                    }
+                }
                 Toggle("Éviter les péages", isOn: $avoidsTolls)
             }
 
@@ -186,7 +192,7 @@ private struct WatchDestinationConfirmView: View {
         failure = nil
         defer { isPlanning = false }
         do {
-            try await model.navigate(to: place, mode: mode, avoidsTolls: avoidsTolls)
+            try await model.navigate(to: place, mode: mode, options: RouteOptions(style: routeStyle, avoidsTolls: avoidsTolls))
             onStart()
         } catch {
             failure = RoutePlanner.explain(error)

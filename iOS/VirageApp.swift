@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftData
 import SwiftUI
 
@@ -10,7 +11,7 @@ struct VirageApp: App {
 
     init() {
         do {
-            container = try ModelContainer(for: Trip.self, RecentDestination.self, FavoritePlace.self)
+            container = try ModelContainer(for: Trip.self, RecentDestination.self, FavoritePlace.self, SavedTrack.self)
         } catch {
             fatalError("Cannot open the trip store: \(error)")
         }
@@ -18,7 +19,11 @@ struct VirageApp: App {
         let navigation = NavigationController(connectivity: connectivity)
         _connectivity = State(initialValue: connectivity)
         _navigation = State(initialValue: navigation)
-        _engine = State(initialValue: RideEngine(modelContainer: container, connectivity: connectivity, navigation: navigation))
+        let engine = RideEngine(modelContainer: container, connectivity: connectivity, navigation: navigation)
+        _engine = State(initialValue: engine)
+        // For the Action button and Siri, which act on the ride in progress.
+        AppDependencyManager.shared.add(dependency: engine)
+        AppDependencyManager.shared.add(dependency: navigation)
         connectivity.activate()
     }
 
@@ -191,13 +196,14 @@ struct RootView: View {
             // Apple Maps sometimes refuses a route for a moment; a demo should not need a relaunch for that.
             var planned: NavigationRoute?
             for _ in 1...5 where planned == nil {
-                planned = try? await RoutePlanner.route(to: destination, named: parts[2], avoidsTolls: false)
+                planned = try? await RoutePlanner.route(to: destination, named: parts[2], options: RouteOptions())
                 if planned == nil {
                     try? await Task.sleep(for: .seconds(2))
                 }
             }
             guard let planned else { return }
-            route = planned        }
+            route = planned
+        }
         navigation.start(route, from: engine.snapshot.position)
         engine.startRide()
     }

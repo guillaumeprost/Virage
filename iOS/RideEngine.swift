@@ -11,6 +11,10 @@ import UIKit
 final class RideEngine: NSObject {
     private(set) var snapshot = RideSnapshot()
     private(set) var authorization: CLAuthorizationStatus = .notDetermined
+    /// The tank, when the rider tracks it.
+    private(set) var fuel: FuelGauge?
+    /// Goes up each time the tank reaches the reserve, for the warning to play.
+    private(set) var fuelWarnings = 0
 
     @ObservationIgnored private let locationManager = CLLocationManager()
     @ObservationIgnored private let leanMeter = LeanMeter()
@@ -39,6 +43,7 @@ final class RideEngine: NSObject {
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.headingFilter = 2
         authorization = locationManager.authorizationStatus
+        fuel = FuelSettings.load()
         connectivity.onCommand = { [weak self] command in
             switch command {
             case .start: self?.startRide(fromWatch: true)
@@ -63,6 +68,30 @@ final class RideEngine: NSObject {
         connectivity.onTrip = { [weak self] trip in
             self?.saveWatchTrip(trip)
         }
+    }
+
+    /// After the fuel settings change.
+    func reloadFuel() {
+        fuel = FuelSettings.load()
+        publish(force: true)
+    }
+
+    /// At the pump: a full tank again.
+    func refuel() {
+        guard var fuel else { return }
+        fuel.refuel()
+        FuelSettings.save(sinceRefuel: fuel.sinceRefuel)
+        self.fuel = fuel
+        publish(force: true)
+    }
+
+    private func burnFuel(_ meters: Double) {
+        guard var fuel, meters > 0 else { return }
+        if fuel.add(meters) {
+            fuelWarnings += 1
+        }
+        FuelSettings.save(sinceRefuel: fuel.sinceRefuel)
+        self.fuel = fuel
     }
 
     var isLocationDenied: Bool {
@@ -156,7 +185,11 @@ final class RideEngine: NSObject {
     }
 
     private func handle(_ location: CLLocation) {
+        let distance = stats.snapshot.distance
         guard stats.ingest(location) else { return }
+        if snapshot.isRiding {
+            burnFuel(stats.snapshot.distance - distance)
+        }
         if snapshot.isRiding, !snapshot.isPaused, track.last.map({ location.timestamp.timeIntervalSince($0.timestamp) >= 1 }) ?? true {
             track.append(TrackPoint(location))
         }
@@ -173,6 +206,8 @@ final class RideEngine: NSObject {
 
     private func publish(force: Bool = false) {
         snapshot = stats.snapshot
+        snapshot.fuelRemaining = fuel?.remaining
+        snapshot.isFuelLow = fuel?.isLow ?? false
         connectivity.send(snapshot, force: force)
         if snapshot.isRiding {
             liveActivity.update(activityState())
@@ -228,6 +263,9 @@ final class RideEngine: NSObject {
         guard existing.isEmpty else { return }
         context.insert(Trip(snapshot: trip.snapshot, endDate: trip.endDate, track: trip.track))
         try? context.save()
+        // Ridden all the same, though the iPhone was not counting.
+        burnFuel(trip.snapshot.distance)
+        publish(force: true)
     }
 
     private func saveTrip() {

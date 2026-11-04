@@ -7,6 +7,7 @@ enum WatchSettings {
     /// In meters per second, whatever the display unit.
     static let speedLimitKey = "speedLimit"
     static let avoidsTollsKey = "avoidsTolls"
+    static let routeStyleKey = "routeStyle"
     static let placesKey = "places"
 
     /// 90 km/h.

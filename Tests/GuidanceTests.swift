@@ -23,7 +23,7 @@ private func lRoute() -> NavigationRoute {
         ],
         destinationName: "Col",
         destination: point(north: 1_000, east: 500),
-        avoidsTolls: false,
+        options: RouteOptions(),
         expectedTravelTime: 120
     )
 }
@@ -62,7 +62,7 @@ struct RouteBuilderTests {
             steps: [("Continuez", [point(north: 0), point(north: 400)]), ("", [point(north: 400), point(north: 800)])],
             destinationName: "Col",
             destination: point(north: 800),
-            avoidsTolls: false,
+            options: RouteOptions(),
             expectedTravelTime: 60
         )
 
@@ -148,14 +148,14 @@ struct StopsTests {
             steps: [("", [point(north: 0)]), ("Vous arriverez à destination", [point(north: 0), point(north: 500), point(north: 1_000)])],
             destinationName: "Café",
             destination: point(north: 1_000),
-            avoidsTolls: false,
+            options: RouteOptions(),
             expectedTravelTime: 80
         )
         let toCol = RouteBuilder.build(
             steps: [("", [point(north: 1_000)]), ("Vous arriverez à destination", [point(north: 1_000), point(north: 1_000, east: 500)])],
             destinationName: "Col",
             destination: point(north: 1_000, east: 500),
-            avoidsTolls: false,
+            options: RouteOptions(),
             expectedTravelTime: 40
         )
         return RouteBuilder.join(
@@ -163,7 +163,7 @@ struct StopsTests {
             stops: [Waypoint(name: "Café", coordinate: point(north: 1_000))],
             destinationName: "Col",
             destination: point(north: 1_000, east: 500),
-            avoidsTolls: false
+            options: RouteOptions()
         )
     }
 

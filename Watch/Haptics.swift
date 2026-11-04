@@ -36,6 +36,18 @@ enum Haptics {
         }
     }
 
+    /// Three soft taps: not urgent like the speed alert, and unlike any turn.
+    @MainActor
+    static func playFuelAlert() {
+        let device = WKInterfaceDevice.current()
+        Task {
+            for _ in 1...3 {
+                device.play(.notification)
+                try? await Task.sleep(for: .milliseconds(700))
+            }
+        }
+    }
+
     private static func pattern(for maneuver: Maneuver) -> WKHapticType {
         switch maneuver {
         case .slightLeft, .left, .sharpLeft: .navigationLeftTurn
