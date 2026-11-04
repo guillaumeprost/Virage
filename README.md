@@ -1,10 +1,68 @@
 # Virage
 
-Compteur de vitesse GPS pour moto sur iPhone, avec une app Apple Watch compagnon.
+Compteur de vitesse GPS et navigation pour moto, sur iPhone et Apple Watch. Pensé pour rouler avec des gants : interface native, grandes commandes bien espacées, plein écran pendant le trajet, guidage par vibrations au poignet.
 
-- **iPhone** : vitesse, angle d'inclinaison (max gauche/droite), distance, temps, vitesse max et moyenne, altitude, cap ; trajets enregistrés (carte et export GPX).
-- **Apple Watch** : affiche la vitesse de l'iPhone tant qu'il est joignable, et bascule sur son propre GPS sinon. Un trajet démarré sur l'un démarre aussi sur l'autre.
-- **Navigation façon Beeline** : destination cherchée sur l'iPhone (Apple Maps), puis sur la montre une grande flèche et une distance. Deux modes : *Itinéraire* (prochain virage, recalcul automatique en cas d'écart ; routes *Rapide*, *Sans autoroute* ou *Plaisir* ; option « éviter les péages ») et *Boussole* (flèche vers la destination, tu choisis tes routes). Vibrations au poignet à 300 m d'un virage, puis deux au virage.
+## Fonctions
+
+### Compteur et trajets
+
+- Vitesse, angle d'inclinaison (instantané et max gauche/droite), distance, temps, vitesse max et moyenne, altitude, cap.
+- Tableau de bord plein écran pendant le trajet, en portrait comme en paysage, avec boutons ronds de pause et d'arrivée.
+- Trajets enregistrés : carte, statistiques, export GPX.
+- Activité en direct sur l'écran verrouillé et dans la Dynamic Island.
+- Alerte de vitesse réglable sur la montre.
+
+### Navigation
+
+- Destination cherchée avec Apple Plans, favoris (maison, travail) et trajets récents, étapes comprises.
+- Mode *Itinéraire* : prochain virage, recalcul automatique en cas d'écart, étapes, « Passer l'étape ».
+- Routes *Rapide*, *Sans autoroute* ou *Plaisir* (la plus sinueuse proposée), et option « éviter les péages ».
+- Mode *Boussole* : une flèche vers la destination, tu choisis tes routes.
+- Sur la montre, façon Beeline : une grande flèche dans un anneau qui se ferme à l'approche du virage, la distance, la rue, la distance restante et l'heure d'arrivée. Une vibration à 300 m d'un virage, puis deux au virage (sens du virage optionnel).
+
+### Traces GPX
+
+- Import depuis l'onglet Rechercher, ou « Ouvrir avec Virage » depuis Fichiers, Mail ou AirDrop.
+- La trace est suivie telle quelle, dans un sens ou dans l'autre ; les virages sont lus dans sa forme.
+- Bibliothèque : chaque trace ouverte est gardée dans l'onglet Rechercher.
+- Dans les lacets, une seule annonce pour une série de virages (« 8 virages sur 1,2 km »).
+
+### Carburant
+
+- Autonomie d'un plein et seuil d'alerte réglables ; l'app compte les km depuis le dernier « Plein fait ».
+- Pastille d'autonomie sur le compteur, rouge sur la réserve, avec vibration sur l'iPhone et la montre.
+- Stations autour de soi et plus loin sur l'itinéraire, classées par détour ; celle choisie devient la prochaine étape.
+
+### Bouton Action
+
+- **iPhone 15 Pro et plus récents** : raccourcis Passer l'étape, Pause / reprise, Démarrer un trajet, Plein fait (Réglages › Bouton Action › Raccourci). Ils marchent aussi avec Siri.
+- **Apple Watch Ultra** : Virage se choisit comme exercice du bouton Action (Réglages › Bouton Action › Exercice) ; un appui démarre le trajet, Action + bouton latéral met en pause et reprend.
+
+### Apple Watch
+
+- Affiche la vitesse de l'iPhone tant qu'il est joignable, et bascule sur son propre GPS sinon. Un trajet démarré sur l'un démarre aussi sur l'autre.
+- Fonctionne sans l'iPhone : destination depuis les favoris, les récents ou une recherche, itinéraire calculé sur la montre, trajet envoyé à l'iPhone plus tard.
+- Pages vitesse, inclinaison, totaux, relief et navigation ; écran toujours allumé.
+- Complications et widget de la Smart Stack.
+
+## Prérequis
+
+- Xcode 26 ou plus récent, et [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+- iPhone sous iOS 18 ou plus récent ; Apple Watch sous watchOS 11 ou plus récent.
+- Pour installer sur de vrais appareils : un compte développeur Apple, avec HealthKit et l'App Group `group.com.guillaumeprost.Virage`.
+
+## Structure
+
+| Dossier | Contenu |
+| --- | --- |
+| `iOS/` | App iPhone : tableau de bord, recherche, navigation, trajets, carburant, réglages, raccourcis |
+| `Watch/` | App Apple Watch : écrans du trajet, navigation, vibrations, exercice du bouton Action |
+| `Shared/` | Code commun : statistiques, inclinaison, guidage, calcul et construction d'itinéraire, GPX, carburant, messages iPhone ↔ montre |
+| `LiveActivity/`, `Widgets/` | Activité en direct de l'iPhone |
+| `WatchShared/`, `WatchWidgets/` | Complications et widget de la montre |
+| `Resources/` | Icône (document Icon Composer) |
+| `Tests/` | Tests unitaires (Swift Testing) |
+| `project.yml` | Définition du projet Xcode pour XcodeGen |
 
 ## Démarrer
 
@@ -57,3 +115,10 @@ Ajouter `-demoMode compass` pour le mode boussole. `-demoPreview "45.8406,6.2131
 - **Complications** : l'app Watch écrit l'état du trajet dans l'App Group et recharge les widgets seulement quand le virage change, au début et à la fin d'un trajet, et sinon au plus une fois par minute. Elles montrent la rue et l'heure d'arrivée, pas la distance au virage, qui serait périmée entre deux rechargements.
 - **Watch** : une `HKWorkoutSession` (jamais enregistrée dans Santé) garde l'app active pendant le trajet. L'iPhone ouvre l'app Watch via `HKHealthStore.startWatchApp` au démarrage d'un trajet.
 - **Arrière-plan** : le GPS ne tourne en arrière-plan que pendant un trajet ; l'écran reste allumé pendant le trajet.
+
+## Limites connues
+
+- MapKit n'a pas de profil moto : les itinéraires sont calculés pour une voiture.
+- L'autonomie est une estimation à partir des km roulés, sans lien avec la moto.
+- L'inclinaison est déduite de la vitesse et de la rotation : elle est fiable en virage stabilisé, moins dans les transitions rapides, et vaut 0 sous 10 km/h.
+- Le bouton Action n'a pas pu être essayé dans le simulateur : à vérifier sur un iPhone et une Apple Watch Ultra.
