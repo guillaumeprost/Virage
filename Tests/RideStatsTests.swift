@@ -1,4 +1,5 @@
 import CoreLocation
+import UIKit
 import Testing
 @testable import Virage
 
@@ -154,5 +155,19 @@ struct LeanAngleTests {
         let gravity = SIMD3<Double>(0, -1, 0)
         #expect(LeanAngle.yawRate(rotationRate: SIMD3(0, -0.5, 0), gravity: gravity) == 0.5)
         #expect(LeanAngle.yawRate(rotationRate: SIMD3(0, 0.5, 0), gravity: gravity) == -0.5)
+    }
+}
+
+struct HeadingOrientationTests {
+    @Test func compassFollowsTheScreenUpright() {
+        #expect(RideEngine.headingOrientation(for: .portrait) == .portrait)
+        #expect(RideEngine.headingOrientation(for: .landscapeLeft) == .landscapeLeft)
+        #expect(RideEngine.headingOrientation(for: .landscapeRight) == .landscapeRight)
+    }
+
+    @Test func flatPhoneKeepsTheLastOrientation() {
+        #expect(RideEngine.headingOrientation(for: .faceUp) == nil)
+        #expect(RideEngine.headingOrientation(for: .faceDown) == nil)
+        #expect(RideEngine.headingOrientation(for: .unknown) == nil)
     }
 }

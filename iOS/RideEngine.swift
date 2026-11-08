@@ -42,6 +42,7 @@ final class RideEngine: NSObject {
         locationManager.distanceFilter = kCLDistanceFilterNone
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.headingFilter = 2
+        followDeviceOrientation()
         authorization = locationManager.authorizationStatus
         fuel = FuelSettings.load()
         connectivity.onCommand = { [weak self] command in
@@ -173,6 +174,38 @@ final class RideEngine: NSObject {
         locationManager.startUpdatingHeading()
         leanMeter.start { [weak self] yawRate in
             self?.handleYawRate(yawRate)
+        }
+    }
+
+    /// The compass measures from the top of the phone held in portrait unless told otherwise: in landscape it
+    /// would be a quarter turn out.
+    private func followDeviceOrientation() {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateHeadingOrientation()
+            }
+        }
+        updateHeadingOrientation()
+    }
+
+    private func updateHeadingOrientation() {
+        // Flat on the tank or unknown: the last upright orientation still says where the top of the phone is.
+        guard let orientation = Self.headingOrientation(for: UIDevice.current.orientation) else { return }
+        locationManager.headingOrientation = orientation
+    }
+
+    nonisolated static func headingOrientation(for device: UIDeviceOrientation) -> CLDeviceOrientation? {
+        switch device {
+        case .portrait: .portrait
+        case .portraitUpsideDown: .portraitUpsideDown
+        case .landscapeLeft: .landscapeLeft
+        case .landscapeRight: .landscapeRight
+        default: nil
         }
     }
 
