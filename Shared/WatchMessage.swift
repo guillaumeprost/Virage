@@ -66,6 +66,23 @@ enum WatchMessage {
         return try? JSONDecoder().decode([SavedPlace].self, from: data)
     }
 
+    private static let homeKey = "home"
+
+    /// The widget figures, for the complications when no ride is under way.
+    static func payload(_ home: HomeWidgetState) -> [String: Any]? {
+        guard let data = try? JSONEncoder().encode(home) else { return nil }
+        return [homeKey: data]
+    }
+
+    static func home(in userInfo: [String: Any]) -> HomeWidgetState? {
+        guard let data = userInfo[homeKey] as? Data else { return nil }
+        return try? JSONDecoder().decode(HomeWidgetState.self, from: data)
+    }
+
+    static func isHome(_ userInfo: [String: Any]) -> Bool {
+        userInfo[homeKey] != nil
+    }
+
     /// Files go both ways: routes to the Watch, trips recorded on the Watch to the iPhone.
     enum FileKind: String {
         case route, trip

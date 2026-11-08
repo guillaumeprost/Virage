@@ -18,6 +18,7 @@ struct RideWidgetState: Codable, Equatable, Sendable {
     var navigation: Navigation?
 
     static let appGroup = "group.com.guillaumeprost.Virage"
+    static let complicationKind = "RideComplication"
     private static let key = "rideWidgetState"
 
     static func load() -> RideWidgetState {

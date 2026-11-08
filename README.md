@@ -8,7 +8,16 @@ Compteur de vitesse GPS et navigation pour moto, sur iPhone et Apple Watch. Pens
 
 - Vitesse, angle d'inclinaison (instantané et max gauche/droite), distance, temps, vitesse max et moyenne, altitude, cap.
 - Tableau de bord plein écran pendant le trajet, en portrait comme en paysage, avec boutons ronds de pause et d'arrivée.
+- Trois styles de compteur (Réglages › Apparence) : *Classique* (natif iOS), *Rétro* (chiffres en Rockwell et libellés en Copperplate, façon café racer : encre sur papier ou crème sur noir) et *Sport* (barre de vitesse segmentée façon compte-tours, grands chiffres penchés, accent rouge). Chacun existe en clair et en sombre, selon le réglage Apparence.
 - Trajets enregistrés : carte, statistiques, export GPX.
+- Trace colorée selon la vitesse ou l'inclinaison, avec les trois virages les plus penchés épinglés sur la carte.
+- Records (plus longue sortie, vitesse max, inclinaison max, dénivelé, point le plus haut, plus longue en temps) et bilan de chaque mois.
+- Trajets renommables (« Tour du lac », « Les Aravis avec Paul ») : le nom remplace la date dans la liste, sur l'image partagée et dans le GPX.
+- Dénivelé positif, altitude max et cols franchis, épinglés sur la carte du trajet.
+- Les photos prises pendant la sortie, retrouvées toutes seules et placées sur la trace (là où elles ont été prises, ou d'après leur heure).
+- Image à partager : une carte (fond de carte, trace colorée, chiffres, cols) dans le style du compteur, ou un tracé PNG transparent façon Strava à poser sur une photo.
+- Widgets d'écran d'accueil et d'écran verrouillé : km depuis le plein, dernière sortie, total du mois.
+- Mini lecteur Apple Music sur le compteur, seulement quand une musique joue : pochette, titre, précédent, lecture/pause, suivant.
 - Activité en direct sur l'écran verrouillé et dans la Dynamic Island.
 - Alerte de vitesse réglable sur la montre.
 
@@ -18,6 +27,7 @@ Compteur de vitesse GPS et navigation pour moto, sur iPhone et Apple Watch. Pens
 - Mode *Itinéraire* : prochain virage, recalcul automatique en cas d'écart, étapes, « Passer l'étape ».
 - Routes *Rapide*, *Sans autoroute* ou *Plaisir* (la plus sinueuse proposée), et option « éviter les péages ».
 - Mode *Boussole* : une flèche vers la destination, tu choisis tes routes.
+- Cols et points de vue autour de toi et plus loin sur l'itinéraire (pastille montagne du compteur) ; celui choisi devient la prochaine étape.
 - Sur la montre, façon Beeline : une grande flèche dans un anneau qui se ferme à l'approche du virage, la distance, la rue, la distance restante et l'heure d'arrivée. Une vibration à 300 m d'un virage, puis deux au virage (sens du virage optionnel).
 
 ### Traces GPX
@@ -29,7 +39,8 @@ Compteur de vitesse GPS et navigation pour moto, sur iPhone et Apple Watch. Pens
 
 ### Carburant
 
-- Autonomie d'un plein et seuil d'alerte réglables ; l'app compte les km depuis le dernier « Plein fait ».
+- Compteur « depuis le plein », remis à zéro par « Plein fait » (pastille du compteur, Réglages, raccourci).
+- Autonomie d'un plein et seuil d'alerte réglables, en option.
 - Pastille d'autonomie sur le compteur, rouge sur la réserve, avec vibration sur l'iPhone et la montre.
 - Stations autour de soi et plus loin sur l'itinéraire, classées par détour ; celle choisie devient la prochaine étape.
 
@@ -43,7 +54,7 @@ Compteur de vitesse GPS et navigation pour moto, sur iPhone et Apple Watch. Pens
 - Affiche la vitesse de l'iPhone tant qu'il est joignable, et bascule sur son propre GPS sinon. Un trajet démarré sur l'un démarre aussi sur l'autre.
 - Fonctionne sans l'iPhone : destination depuis les favoris, les récents ou une recherche, itinéraire calculé sur la montre, trajet envoyé à l'iPhone plus tard.
 - Pages vitesse, inclinaison, totaux, relief et navigation ; écran toujours allumé.
-- Complications et widget de la Smart Stack.
+- Complications et widget de la Smart Stack : entre deux sorties, les km depuis le plein (ou une jauge d'autonomie) et le total du mois ; pendant un trajet, le chrono, la distance et le prochain virage.
 
 ## Prérequis
 
@@ -96,6 +107,12 @@ xcrun simctl launch booted com.guillaumeprost.Virage -demoDestination "45.8406,6
 
 Ajouter `-demoMode compass` pour le mode boussole. `-demoPreview "45.8406,6.2131,Talloires"` ouvre plutôt l'aperçu d'itinéraire dans l'onglet Rechercher, et `-demoStops "45.8603,6.1953,Menthon-Saint-Bernard"` y ajoute des étapes (séparées par `;`). `-demoGPX /chemin/vers/fichier.gpx` ouvre un GPX comme s'il venait de Fichiers (le fichier doit être dans le conteneur de l'app, par exemple son dossier Documents).
 
+Remplir l'onglet Trajets avec quelques sorties fictives (vitesse et inclinaison), sur une app sans trajet :
+
+```bash
+xcrun simctl launch booted com.guillaumeprost.Virage -demoTrips YES
+```
+
 ## Choix techniques
 
 - **Navigation** : MapKit (`MKDirections`, profil voiture faute de profil moto). MapKit ne donne les manœuvres qu'en texte : le sens du virage est lu dans la géométrie, à la fin du tracé de chaque étape. Le guidage tourne sur la montre à partir de la position reçue (iPhone ou GPS de la montre), donc les vibrations ne dépendent pas de la liaison. L'iPhone recalcule l'itinéraire et l'envoie ; la montre ne recalcule seule que si l'iPhone ne répond plus.
@@ -111,6 +128,13 @@ Ajouter `-demoMode compass` pour le mode boussole. `-demoPreview "45.8406,6.2131
 - **Bibliothèque GPX** : chaque trace ouverte est gardée (`SavedTrack`, section « Traces GPX » de l'onglet Rechercher). Dans les lacets, 3 virages ou plus espacés de moins de 250 m sont annoncés une fois (« 8 virages sur 1,2 km »).
 - **Carburant** : pas de capteur, l'app compte les km roulés depuis le dernier « Plein fait » (trajets iPhone et montre) contre l'autonomie réglée. Passage sur la réserve : pastille rouge, vibration sur l'iPhone et la montre. Les stations (catégorie et recherche « station-service », autour de soi et 15 et 35 km plus loin sur l'itinéraire) sont classées par détour ; celle choisie devient la prochaine étape.
 - **Bouton Action** : iPhone, via les raccourcis fournis (Passer l'étape, Pause / reprise, Démarrer un trajet, Plein fait), qui agissent sans ouvrir l'app. Apple Watch Ultra : Virage se choisit comme exercice du bouton Action (`StartWorkoutIntent`) ; Action + bouton latéral met en pause et reprend.
+- **Trajets enrichis** : chaque point de la trace garde l'inclinaison (`TrackPoint.lean`, absente des anciens trajets et de ceux de la montre seule, qui ne montrent alors que la vitesse). La trace est découpée en tronçons par tranche de couleur, sur la médiane de 5 points pour qu'un à-coup ne change pas la couleur (`TripInsights`). Les virages épinglés sont distants d'au moins 1,5 km.
+- **Styles** : `DashboardStyle`, passé dans l'environnement. Seuls les éléments visuels changent (vitesse, inclinaison, tuiles, pastille, boutons) : l'agencement et les fonctions sont communs. Leurs couleurs ont une version claire et une sombre (`Color(light:dark:)`) et suivent le réglage Apparence ; l'accent est l'encre (Rétro) ou le rouge (Sport).
+- **Cols et points de vue** : Apple Plans n'a pas de catégorie pour eux ; ils sont cherchés par nom (« col », « le col », « point de vue », « belvédère ») et reconnus à leur nom (`ScenicSearch.kind`). Un col est franchi quand la trace passe à moins de 200 m ; le long d'un trajet, au plus 20 petites recherches réparties sur la trace, pour rester dans la limite d'Apple Plans. Résultat gardé dans le trajet (`Trip.passes`). Certains cols trouvés ne sont accessibles qu'à pied.
+- **Dénivelé** : altitude lissée (médiane de 5 points) puis seuil de 5 m, pour que le bruit du GPS ne s'additionne pas (`TripInsights.elevation`). Mesuré à l'enregistrement, et une fois pour les anciens trajets.
+- **Photos** : PhotoKit, photos prises entre le départ et l'arrivée (± 10 min). L'accès est demandé depuis un trajet, pas au lancement.
+- **Partage** : `ImageRenderer` en PNG à 1080 px de large ; la carte vient de `MKMapSnapshotter`, la trace y est posée avec `snapshot.point(for:)`.
+- **Widgets** : l'app écrit un petit état JSON dans l'App Group (`HomeWidgetState`) quand elle passe en arrière-plan, après un trajet et au plein, puis recharge les widgets. Le même état part vers la montre par `transferCurrentComplicationUserInfo` (livré tout de suite quand une complication Virage est sur le cadran, dans un budget quotidien ; sinon en simple `transferUserInfo`). Les timelines prévoient une entrée au 1er du mois suivant, où le total du mois repart de zéro.
 - **Historique** : un trajet récent garde ses étapes (`RecentDestination.viaData`) ; la même destination par d'autres étapes est une entrée distincte.
 - **Complications** : l'app Watch écrit l'état du trajet dans l'App Group et recharge les widgets seulement quand le virage change, au début et à la fin d'un trajet, et sinon au plus une fois par minute. Elles montrent la rue et l'heure d'arrivée, pas la distance au virage, qui serait périmée entre deux rechargements.
 - **Watch** : une `HKWorkoutSession` (jamais enregistrée dans Santé) garde l'app active pendant le trajet. L'iPhone ouvre l'app Watch via `HKHealthStore.startWatchApp` au démarrage d'un trajet.

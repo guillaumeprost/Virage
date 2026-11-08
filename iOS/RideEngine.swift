@@ -11,7 +11,11 @@ import UIKit
 final class RideEngine: NSObject {
     private(set) var snapshot = RideSnapshot()
     private(set) var authorization: CLAuthorizationStatus = .notDetermined
-    /// The tank, when the rider tracks it.
+    /// Meters ridden since the last fill-up: the trip counter, kept whether or not the range is tracked.
+    private var odometer = RefuelOdometer()
+    /// Meters since the last fill-up, tracked tank or not.
+    var sinceRefuel: Double { odometer.meters }
+    /// The tank, when the rider tracks its range.
     private(set) var fuel: FuelGauge?
     /// Goes up each time the tank reaches the reserve, for the warning to play.
     private(set) var fuelWarnings = 0
@@ -75,24 +79,23 @@ final class RideEngine: NSObject {
     func reloadFuel() {
         fuel = FuelSettings.load()
         publish(force: true)
+        publishHomeWidget()
     }
 
     /// At the pump: a full tank again.
     func refuel() {
-        guard var fuel else { return }
-        fuel.refuel()
-        FuelSettings.save(sinceRefuel: fuel.sinceRefuel)
-        self.fuel = fuel
+        odometer.reset()
+        fuel?.refuel()
         publish(force: true)
+        publishHomeWidget()
     }
 
     private func burnFuel(_ meters: Double) {
-        guard var fuel, meters > 0 else { return }
-        if fuel.add(meters) {
+        guard meters > 0 else { return }
+        odometer.add(meters)
+        if fuel?.add(meters) == true {
             fuelWarnings += 1
         }
-        FuelSettings.save(sinceRefuel: fuel.sinceRefuel)
-        self.fuel = fuel
     }
 
     var isLocationDenied: Bool {
@@ -104,9 +107,14 @@ final class RideEngine: NSObject {
         if isForeground {
             wantsUpdates = true
             startUpdates()
-        } else if !snapshot.isRiding {
-            wantsUpdates = false
-            stopUpdates()
+        } else {
+            // Leaving the app is when the widgets should catch up with what happened in it.
+            odometer.save()
+            publishHomeWidget()
+            if !snapshot.isRiding {
+                wantsUpdates = false
+                stopUpdates()
+            }
         }
     }
 
@@ -139,6 +147,7 @@ final class RideEngine: NSObject {
         locationManager.allowsBackgroundLocationUpdates = false
         UIApplication.shared.isIdleTimerDisabled = false
         saveTrip()
+        odometer.save()
         if UIApplication.shared.applicationState == .background {
             wantsUpdates = false
             stopUpdates()
@@ -151,6 +160,7 @@ final class RideEngine: NSObject {
         guard snapshot.isRiding, paused != snapshot.isPaused else { return }
         if paused {
             stats.pause(at: .now)
+            odometer.save()
         } else {
             stats.unpause(at: .now)
         }
@@ -224,7 +234,7 @@ final class RideEngine: NSObject {
             burnFuel(stats.snapshot.distance - distance)
         }
         if snapshot.isRiding, !snapshot.isPaused, track.last.map({ location.timestamp.timeIntervalSince($0.timestamp) >= 1 }) ?? true {
-            track.append(TrackPoint(location))
+            track.append(TrackPoint(location, lean: stats.snapshot.leanAngle))
         }
         if let position = stats.snapshot.position {
             navigation.update(position)
@@ -239,6 +249,7 @@ final class RideEngine: NSObject {
 
     private func publish(force: Bool = false) {
         snapshot = stats.snapshot
+        snapshot.sinceRefuel = sinceRefuel
         snapshot.fuelRemaining = fuel?.remaining
         snapshot.isFuelLow = fuel?.isLow ?? false
         connectivity.send(snapshot, force: force)
@@ -299,6 +310,7 @@ final class RideEngine: NSObject {
         // Ridden all the same, though the iPhone was not counting.
         burnFuel(trip.snapshot.distance)
         publish(force: true)
+        publishHomeWidget()
     }
 
     private func saveTrip() {
@@ -307,6 +319,36 @@ final class RideEngine: NSObject {
         context.insert(Trip(snapshot: snapshot, endDate: .now, track: track))
         try? context.save()
         track = []
+        publishHomeWidget()
+    }
+
+    /// The figures the home and lock screen widgets show: the tank, the last ride and the month.
+    /// Only the last trip and this month's are read: the history can hold hundreds.
+    func publishHomeWidget() {
+        let context = modelContainer.mainContext
+        var last = FetchDescriptor<Trip>(sortBy: [SortDescriptor(\.startDate, order: .reverse)])
+        last.fetchLimit = 1
+        let lastTrip = (try? context.fetch(last))?.first
+        let monthStart = Calendar.current.dateInterval(of: .month, for: .now)?.start ?? .now
+        let monthTrips = (try? context.fetch(FetchDescriptor<Trip>(predicate: #Predicate { $0.startDate >= monthStart }))) ?? []
+        let state = HomeWidgetState(
+            sinceRefuel: sinceRefuel,
+            fuelRemaining: fuel?.remaining,
+            fuelRange: fuel?.range,
+            isFuelLow: fuel?.isLow ?? false,
+            lastTrip: lastTrip.map { trip in
+                HomeWidgetState.LastTrip(date: trip.startDate, distance: trip.distance, movingTime: trip.movingTime, elevationGain: trip.elevationGain)
+            },
+            month: HomeWidgetState.Month(
+                start: monthStart,
+                count: monthTrips.count,
+                distance: monthTrips.reduce(0) { $0 + $1.distance },
+                movingTime: monthTrips.reduce(0) { $0 + $1.movingTime }
+            ),
+            unit: .current
+        )
+        state.save()
+        connectivity.send(home: state)
     }
 }
 

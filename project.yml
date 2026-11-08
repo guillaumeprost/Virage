@@ -25,6 +25,7 @@ targets:
       - path: iOS
       - path: Shared
       - path: LiveActivity
+      - path: HomeWidget
       # Icon Composer layers: the system renders them in light, dark, clear and tinted modes.
       - path: Resources/AppIcon.icon
         buildPhase: resources
@@ -61,12 +62,16 @@ targets:
         NSLocationWhenInUseUsageDescription: "Virage utilise le GPS pour afficher ta vitesse et enregistrer tes trajets."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Virage continue de suivre ton trajet quand l'écran est verrouillé."
         NSMotionUsageDescription: "Virage utilise le gyroscope pour calculer l'angle d'inclinaison de la moto."
+        NSPhotoLibraryUsageDescription: "Virage place les photos prises pendant une sortie sur la carte du trajet."
+        NSAppleMusicUsageDescription: "Virage affiche le morceau en cours dans Apple Music et te laisse passer au suivant sans quitter le compteur."
         NSHealthShareUsageDescription: "Virage démarre l'app Apple Watch en même temps que ton trajet."
         NSHealthUpdateUsageDescription: "Virage démarre l'app Apple Watch en même temps que ton trajet."
     entitlements:
       path: iOS/Virage.entitlements
       properties:
         com.apple.developer.healthkit: true
+        # Shared with the home and lock screen widgets, which read what to show from it.
+        com.apple.security.application-groups: [group.com.guillaumeprost.Virage]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.guillaumeprost.Virage
@@ -76,13 +81,15 @@ targets:
       - target: VirageWatch
       - target: VirageWidgets
 
-  # The Live Activity on the lock screen and in the Dynamic Island.
+  # The Live Activity on the lock screen and in the Dynamic Island, and the home and lock screen widgets.
   VirageWidgets:
     type: app-extension
     platform: iOS
     sources:
       - path: Widgets
       - path: LiveActivity
+      - path: HomeWidget
+      - path: Shared/SpeedUnit.swift
     info:
       path: Widgets/Info.plist
       properties:
@@ -90,6 +97,10 @@ targets:
         CFBundleDevelopmentRegion: fr
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widgets/VirageWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.guillaumeprost.Virage]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.guillaumeprost.Virage.widgets
@@ -102,6 +113,7 @@ targets:
       - path: Watch
       - path: Shared
       - path: WatchShared
+      - path: HomeWidget
       - path: Resources/AppIcon.icon
         buildPhase: resources
     info:
@@ -138,6 +150,8 @@ targets:
     sources:
       - path: WatchWidgets
       - path: WatchShared
+      - path: HomeWidget
+      - path: Shared/SpeedUnit.swift
     info:
       path: WatchWidgets/Info.plist
       properties:

@@ -1,6 +1,6 @@
 import Foundation
 
-enum SpeedUnit: String, CaseIterable, Identifiable, Sendable {
+enum SpeedUnit: String, CaseIterable, Identifiable, Sendable, Codable {
     case kilometersPerHour
     case milesPerHour
 
@@ -83,6 +83,11 @@ enum Format {
     static func duration(_ interval: TimeInterval) -> String {
         let seconds = Int(interval)
         return String(format: "%d:%02d:%02d", seconds / 3_600, seconds / 60 % 60, seconds % 60)
+    }
+
+    /// "2 h 05 min": a ride's length, without seconds.
+    static func shortDuration(_ interval: TimeInterval) -> String {
+        Duration.seconds(interval).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
     }
 
     static func lean(_ degrees: Double) -> String {

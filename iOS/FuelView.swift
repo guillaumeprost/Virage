@@ -33,16 +33,7 @@ enum GasStationSearch {
 
     /// Stations on the way first, the cheapest to reach leading; then the others, nearest first.
     static func stations(near position: Coordinate, route: NavigationRoute?, riddenAlong: Double) async -> [GasStation] {
-        var centers = [position]
-        if let route, route.mode == .route, !route.points.isEmpty {
-            let cumulative = Self.cumulative(route.points)
-            for offset in lookAhead.dropFirst() {
-                let target = riddenAlong + offset
-                guard target < (cumulative.last ?? 0),
-                      let index = cumulative.firstIndex(where: { $0 >= target }) else { continue }
-                centers.append(route.points[index])
-            }
-        }
+        let centers = AlongRoute.centers(from: position, route: route, riddenAlong: riddenAlong, ahead: Array(lookAhead.dropFirst()))
 
         var found: [String: (name: String, coordinate: Coordinate)] = [:]
         await withTaskGroup(of: [(String, Coordinate)].self) { group in
@@ -56,19 +47,13 @@ enum GasStationSearch {
             }
         }
 
-        let cumulative = route.map { Self.cumulative($0.points) } ?? []
+        let points = route?.mode == .route ? route?.points ?? [] : []
+        let cumulative = AlongRoute.cumulative(points)
         let stations = found.values.map { item in
             var station = GasStation(name: item.name, coordinate: item.coordinate, distance: Geo.distance(position, item.coordinate))
-            if let route, route.mode == .route, !route.points.isEmpty {
-                var best = (index: 0, distance: Double.infinity)
-                for (index, point) in route.points.enumerated() {
-                    let distance = Geo.distance(point, item.coordinate)
-                    if distance < best.distance {
-                        best = (index, distance)
-                    }
-                }
-                station.ahead = cumulative[best.index] - riddenAlong
-                station.offRoute = best.distance
+            if let placement = AlongRoute.placement(of: item.coordinate, on: points, cumulative: cumulative, riddenAlong: riddenAlong) {
+                station.ahead = placement.ahead
+                station.offRoute = placement.offRoute
             }
             return station
         }
@@ -91,22 +76,8 @@ enum GasStationSearch {
         let items = (try? await MKLocalSearch(request: nearby).start())?.mapItems ?? []
         let more = (try? await MKLocalSearch(request: named).start())?.mapItems ?? []
         return (items + more).map { item in
-            let coordinate: CLLocationCoordinate2D
-            if #available(iOS 26, *) {
-                coordinate = item.location.coordinate
-            } else {
-                coordinate = item.placemark.coordinate
-            }
-            return (item.name ?? "Station-service", Coordinate(latitude: coordinate.latitude, longitude: coordinate.longitude))
+            (item.name ?? "Station-service", AlongRoute.coordinate(of: item))
         }
-    }
-
-    private static func cumulative(_ points: [Coordinate]) -> [Double] {
-        var cumulative = [0.0]
-        for index in points.indices.dropFirst() {
-            cumulative.append(cumulative[index - 1] + Geo.distance(points[index - 1], points[index]))
-        }
-        return cumulative
     }
 }
 
@@ -123,9 +94,9 @@ struct FuelSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if let fuel = engine.fuel {
-                    Section {
-                        VStack(alignment: .leading, spacing: 10) {
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if let fuel = engine.fuel {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(Format.range(fuel.remaining, unit))
                                     .font(.largeTitle.weight(.bold))
@@ -136,25 +107,37 @@ struct FuelSheet: View {
                             }
                             ProgressView(value: fuel.remaining, total: fuel.range)
                                 .tint(fuel.isLow ? .red : .blue)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    Section {
-                        Button {
-                            engine.refuel()
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Image(systemName: "fuelpump.fill")
-                                Text("Plein fait")
+                            Text("\(Format.distance(engine.sinceRefuel, unit)) depuis le plein")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        } else {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(Format.distance(engine.sinceRefuel, unit))
+                                    .font(.largeTitle.weight(.bold))
+                                    .monospacedDigit()
+                                Text("depuis le plein")
+                                    .foregroundStyle(.secondary)
                             }
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
                     }
+                    .padding(.vertical, 4)
+                }
+                Section {
+                    Button {
+                        engine.refuel()
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Image(systemName: "fuelpump.fill")
+                            Text("Plein fait")
+                        }
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
 
                 Section {
@@ -241,15 +224,8 @@ struct FuelSheet: View {
         going = station
         failure = nil
         defer { going = nil }
-        let stop = Waypoint(name: station.name, coordinate: station.coordinate)
         do {
-            if navigation.acceptsStops {
-                try await navigation.insertStop(stop)
-            } else {
-                let route = try await RoutePlanner.route(to: station.coordinate, named: station.name, from: engine.snapshot.position, options: RouteOptions())
-                navigation.start(route, from: engine.snapshot.position)
-                engine.startRide()
-            }
+            try await Detour.go(to: Waypoint(name: station.name, coordinate: station.coordinate), navigation: navigation, engine: engine)
             dismiss()
         } catch {
             failure = RoutePlanner.explain(error)
@@ -257,24 +233,45 @@ struct FuelSheet: View {
     }
 }
 
-/// The fuel left, as a small capsule: tapped, it opens the fuel sheet.
+/// The tank at a glance, as a small capsule: the range left when it is tracked, otherwise the kilometers since
+/// the last fill-up. Tapped, it opens the fuel sheet.
 struct FuelBadge: View {
-    let fuel: FuelGauge
+    let sinceRefuel: Double
+    let fuel: FuelGauge?
     let action: () -> Void
     @AppStorage(SpeedUnit.storageKey) private var unit = SpeedUnit.kilometersPerHour
+    @Environment(\.dashboardStyle) private var style
+
+    private var isLow: Bool { fuel?.isLow ?? false }
 
     var body: some View {
         Button(action: action) {
-            Label(Format.range(fuel.remaining, unit), systemImage: fuel.isLow ? "fuelpump.exclamationmark.fill" : "fuelpump.fill")
-                .font(.subheadline.weight(.semibold))
+            Label(text, systemImage: isLow ? "fuelpump.exclamationmark.fill" : "fuelpump.fill")
+                .font(style.figureFont(.subheadline.weight(.semibold), size: 15, relativeTo: .subheadline))
                 .monospacedDigit()
-                .foregroundStyle(fuel.isLow ? .white : .primary)
+                .styledDigits(style)
+                .foregroundStyle(isLow ? .white : .primary)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)
-                .background(fuel.isLow ? AnyShapeStyle(.red) : AnyShapeStyle(.regularMaterial), in: .capsule)
-                .contentShape(.capsule)
+                .background { DashboardCapsule(isAlert: isLow) }
+                .contentShape(.rect(cornerRadius: 22))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Carburant : \(Format.range(fuel.remaining, unit)) d'autonomie")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var text: String {
+        if let fuel {
+            return Format.range(fuel.remaining, unit)
+        }
+        // A trip counter, read to the tenth like the one on the bike.
+        return Format.distance(sinceRefuel, unit)
+    }
+
+    private var accessibilityText: String {
+        if let fuel {
+            return "Carburant : \(Format.range(fuel.remaining, unit)) d'autonomie"
+        }
+        return "\(Format.distance(sinceRefuel, unit)) depuis le plein"
     }
 }

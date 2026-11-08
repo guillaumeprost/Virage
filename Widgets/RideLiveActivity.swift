@@ -6,6 +6,7 @@ import WidgetKit
 struct VirageWidgets: WidgetBundle {
     var body: some Widget {
         RideLiveActivity()
+        HomeWidget()
     }
 }
 

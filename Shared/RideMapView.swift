@@ -10,16 +10,20 @@ struct RideMapView: View, Equatable {
     let position: Coordinate?
     /// Off where the map sits inside a scrolling view, so a drag scrolls instead of panning the map.
     var isInteractive = true
+    /// When set, the map shows no controls of its own: the screen places them, bound to this scope, where they
+    /// stay clear of what floats over the map.
+    var controlsScope: Namespace.ID?
 
     @State private var camera: MapCameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
 
     nonisolated static func == (lhs: RideMapView, rhs: RideMapView) -> Bool {
         lhs.route.id == rhs.route.id && lhs.position == rhs.position && lhs.isInteractive == rhs.isInteractive
+            && lhs.controlsScope == rhs.controlsScope
     }
 
     var body: some View {
         let destination = CLLocationCoordinate2D(latitude: route.destination.latitude, longitude: route.destination.longitude)
-        Map(position: $camera, interactionModes: isInteractive ? .all : []) {
+        Map(position: $camera, interactionModes: isInteractive ? .all : [], scope: controlsScope) {
             if route.mode == .route {
                 MapPolyline(coordinates: route.points.map(\.clLocation))
                     .stroke(Color.blue, style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
@@ -39,8 +43,10 @@ struct RideMapView: View, Equatable {
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
         #if os(iOS)
         .mapControls {
-            MapUserLocationButton()
-            MapCompass()
+            if controlsScope == nil {
+                MapUserLocationButton()
+                MapCompass()
+            }
         }
         #endif
     }

@@ -35,6 +35,8 @@
 	<string>1</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Virage affiche le morceau en cours dans Apple Music et te laisse passer au suivant sans quitter le compteur.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Virage démarre l'app Apple Watch en même temps que ton trajet.</string>
 	<key>NSHealthUpdateUsageDescription</key>
@@ -45,6 +47,8 @@
 	<string>Virage utilise le GPS pour afficher ta vitesse et enregistrer tes trajets.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Virage utilise le gyroscope pour calculer l'angle d'inclinaison de la moto.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Virage place les photos prises pendant une sortie sur la carte du trajet.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>

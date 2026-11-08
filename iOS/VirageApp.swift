@@ -8,6 +8,7 @@ struct VirageApp: App {
     @State private var connectivity: PhoneConnectivity
     @State private var navigation: NavigationController
     @State private var engine: RideEngine
+    @State private var music = NowPlaying()
 
     init() {
         do {
@@ -33,6 +34,8 @@ struct VirageApp: App {
                 .environment(engine)
                 .environment(connectivity)
                 .environment(navigation)
+                .environment(music)
+                .task { music.start() }
         }
         .modelContainer(container)
     }
@@ -58,10 +61,12 @@ enum Appearance: String, CaseIterable, Identifiable {
 struct RootView: View {
     @Environment(RideEngine.self) private var engine
     @Environment(PhoneConnectivity.self) private var connectivity
+    @Environment(NowPlaying.self) private var music
     @Query private var favorites: [FavoritePlace]
     @Query(sort: \RecentDestination.lastUsed, order: .reverse) private var recents: [RecentDestination]
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(Appearance.storageKey) private var appearance = Appearance.system
+    @AppStorage(DashboardStyle.storageKey) private var style = DashboardStyle.classic
     @State private var tab = AppTab.dashboard
     @State private var searchQuery = ""
     @State private var openedDemoPreview = false
@@ -83,6 +88,8 @@ struct RootView: View {
             }
         }
         .preferredColorScheme(appearance.colorScheme)
+        .tint(style.tint)
+        .environment(\.dashboardStyle, style)
         // A .gpx file opened from Files, Mail or AirDrop: shown in the search tab, ready to follow.
         .onOpenURL(perform: open)
         .alert("Fichier GPX illisible", isPresented: $openFailed) {
@@ -94,9 +101,13 @@ struct RootView: View {
         }
         .onChange(of: scenePhase, initial: true) {
             engine.setForeground(scenePhase != .background)
+            if scenePhase == .active {
+                music.refresh()
+            }
         }
         #if DEBUG
         .task { await startDemoNavigation() }
+        .task { DemoTrips.insert(into: modelContext) }
         .task {
             // `-demoGPX /path/to/file.gpx`, for trying an import in the simulator without Files.
             if let path = UserDefaults.standard.string(forKey: "demoGPX") {
@@ -176,6 +187,7 @@ struct RootView: View {
 
     #if DEBUG
     @Environment(NavigationController.self) private var navigation
+    @Environment(\.modelContext) private var modelContext
 
     /// Starts navigating at launch, for testing in the simulator without typing a destination:
     /// `-demoDestination "45.8406,6.2131,Talloires"`, with `-demoMode compass` for the compass.

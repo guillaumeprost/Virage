@@ -427,6 +427,8 @@ extension WatchRideModel: WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        // The complication shows these figures when no ride is under way.
+        WatchMessage.home(in: userInfo)?.save()
         guard let places = WatchMessage.places(in: userInfo) else { return }
         Task { @MainActor in
             self.places = places

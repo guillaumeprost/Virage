@@ -18,6 +18,9 @@ final class PhoneConnectivity: NSObject {
     @ObservationIgnored private var sentPlaces: [SavedPlace]?
     /// Kept for when the session finishes activating: the first list usually comes before.
     @ObservationIgnored private var latestPlaces: [SavedPlace]?
+    /// The widget figures last handed to the Watch, and the latest ones, for when the session activates.
+    @ObservationIgnored private var sentHome: HomeWidgetState?
+    @ObservationIgnored private var latestHome: HomeWidgetState?
     @ObservationIgnored private var lastSent = Date.distantPast
     /// Kept to send again to a Watch app that was relaunched mid-route.
     @ObservationIgnored private var currentRoute: NavigationRoute?
@@ -97,6 +100,38 @@ final class PhoneConnectivity: NSObject {
         sentPlaces = places
     }
 
+    /// Kilometers since the fill-up and the month, for the complications.
+    ///
+    /// Sent as complication user info: delivered at once while a Virage complication is on the watch face,
+    /// within a daily budget; past it, as ordinary user info, queued until the Watch wakes.
+    func send(home: HomeWidgetState) {
+        latestHome = home
+        guard home != sentHome, WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isWatchAppInstalled,
+              let payload = WatchMessage.payload(home) else { return }
+        // Only the latest figures matter.
+        session.outstandingUserInfoTransfers
+            .filter { WatchMessage.isHome($0.userInfo) }
+            .forEach { $0.cancel() }
+        if session.isComplicationEnabled, session.remainingComplicationUserInfoTransfers > 0 {
+            session.transferCurrentComplicationUserInfo(payload)
+        } else {
+            session.transferUserInfo(payload)
+        }
+        sentHome = home
+    }
+
+    /// What waits for the session, or for the Watch app to be installed.
+    private func sendLatest() {
+        if let latestPlaces {
+            send(places: latestPlaces)
+        }
+        if let latestHome {
+            send(home: latestHome)
+        }
+    }
+
     private func refreshState() {
         let session = WCSession.default
         isWatchReachable = session.isReachable
@@ -114,9 +149,8 @@ extension PhoneConnectivity: WCSessionDelegate {
             refreshState()
             // Sent again after each launch: the Watch may have been reset or paired since.
             sentPlaces = nil
-            if let latestPlaces {
-                send(places: latestPlaces)
-            }
+            sentHome = nil
+            sendLatest()
         }
     }
 
@@ -132,7 +166,15 @@ extension PhoneConnectivity: WCSessionDelegate {
     }
 
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
-        Task { @MainActor in refreshState() }
+        let isComplicationEnabled = session.isComplicationEnabled
+        Task { @MainActor in
+            let wasInstalled = isWatchAppInstalled
+            refreshState()
+            // A Watch app just installed, or a complication just added, gets the figures right away.
+            if !wasInstalled { sentHome = nil; sentPlaces = nil }
+            if isComplicationEnabled { sentHome = nil }
+            sendLatest()
+        }
     }
 
     nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: (any Error)?) {

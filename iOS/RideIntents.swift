@@ -53,15 +53,12 @@ struct StartRideIntent: AppIntent {
 
 struct RefuelIntent: AppIntent {
     static let title: LocalizedStringResource = "Plein fait"
-    static let description = IntentDescription("Remet l'autonomie du réservoir à son maximum.")
+    static let description = IntentDescription("Remet à zéro le compteur depuis le plein, et l'autonomie à son maximum.")
 
     @Dependency private var engine: RideEngine
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard engine.fuel != nil else {
-            return .result(dialog: "Active le suivi de l'autonomie dans les réglages de Virage.")
-        }
         engine.refuel()
         return .result(dialog: "Plein noté.")
     }

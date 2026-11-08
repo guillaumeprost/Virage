@@ -8,15 +8,15 @@ struct VirageWatchWidgets: WidgetBundle {
     }
 }
 
-/// On the watch face and in the Smart Stack: a shortcut to the app, then the ride once it has started.
+/// On the watch face and in the Smart Stack: the kilometers since the fill-up, then the ride once it has started.
 struct RideComplication: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "RideComplication", provider: RideProvider()) { entry in
-            RideComplicationView(state: entry.state)
+        StaticConfiguration(kind: RideWidgetState.complicationKind, provider: RideProvider()) { entry in
+            RideComplicationView(state: entry.state, home: entry.home)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Virage")
-        .description("Le trajet en cours et le prochain virage.")
+        .description("Les kilomètres depuis le plein, puis le trajet en cours et le prochain virage.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryCorner, .accessoryInline])
     }
 }
@@ -24,40 +24,53 @@ struct RideComplication: Widget {
 struct RideEntry: TimelineEntry {
     let date: Date
     let state: RideWidgetState
+    /// Sent by the iPhone: shown when no ride is under way.
+    var home: HomeWidgetState?
     /// Raised during a ride, so the Smart Stack brings the widget to the top.
     let relevance: TimelineEntryRelevance?
 }
 
 struct RideProvider: TimelineProvider {
     func placeholder(in context: Context) -> RideEntry {
-        RideEntry(date: .now, state: .preview, relevance: nil)
+        // What the complication shows most of the time: the figures between two rides.
+        RideEntry(date: .now, state: RideWidgetState(), home: .placeholder, relevance: nil)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (RideEntry) -> Void) {
-        completion(context.isPreview ? placeholder(in: context) : entry())
+        completion(context.isPreview ? placeholder(in: context) : entries()[0])
     }
 
-    /// The Watch app reloads the timeline when the ride changes; nothing to schedule here.
+    /// The Watch app reloads the timeline when the ride or the iPhone's figures change; only the turn of the
+    /// month is scheduled here.
     func getTimeline(in context: Context, completion: @escaping (Timeline<RideEntry>) -> Void) {
-        completion(Timeline(entries: [entry()], policy: .never))
+        completion(Timeline(entries: entries(), policy: .never))
     }
 
-    private func entry() -> RideEntry {
+    private func entries() -> [RideEntry] {
         let state = RideWidgetState.load()
-        return RideEntry(date: .now, state: state, relevance: TimelineEntryRelevance(score: state.isRiding ? 100 : 0))
+        let relevance = TimelineEntryRelevance(score: state.isRiding ? 100 : 0)
+        guard let home = HomeWidgetState.load() else {
+            return [RideEntry(date: .now, state: state, relevance: relevance)]
+        }
+        return home.timeline(from: .now).map { RideEntry(date: $0.date, state: state, home: $0.state, relevance: relevance) }
     }
 }
 
-private extension RideWidgetState {
-    static let preview = RideWidgetState(
-        isRiding: true,
-        startDate: .now.addingTimeInterval(-1_260),
-        distance: "18.4 km",
-        navigation: Navigation(symbol: "arrow.turn.up.right", instruction: "Tournez à droite sur la D909", arrival: .now.addingTimeInterval(900))
-    )
+/// The ride, or between two rides the iPhone's figures: decided once, here.
+struct RideComplicationView: View {
+    let state: RideWidgetState
+    var home: HomeWidgetState?
+
+    var body: some View {
+        if !state.isRiding, let home {
+            IdleComplication(home: home)
+        } else {
+            RideStateView(state: state)
+        }
+    }
 }
 
-struct RideComplicationView: View {
+private struct RideStateView: View {
     @Environment(\.widgetFamily) private var family
     let state: RideWidgetState
 
@@ -179,5 +192,107 @@ struct RideComplicationView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+
+/// Between two rides: the tank, and the month, sent by the iPhone.
+private struct IdleComplication: View {
+    @Environment(\.widgetFamily) private var family
+    let home: HomeWidgetState
+
+    var body: some View {
+        switch family {
+        case .accessoryCircular: circular
+        case .accessoryCorner: corner
+        case .accessoryInline: Label(home.inlineCaption, systemImage: home.fuelSymbol)
+        default: rectangular
+        }
+    }
+
+    /// Read like the bike's own fuel gauge: the marker slides from green towards red.
+    private static let fuelGradient = Gradient(colors: [.red, .yellow, .green])
+
+    @ViewBuilder
+    private var circular: some View {
+        if let gauge = home.gauge {
+            Gauge(value: gauge.remaining, in: 0...gauge.range) {
+                Image(systemName: home.fuelSymbol)
+            } currentValueLabel: {
+                Text(home.wholeDistance(gauge.remaining))
+                    .monospacedDigit()
+            }
+            .gaugeStyle(.accessoryCircular)
+            .tint(Self.fuelGradient)
+        } else {
+            ZStack {
+                AccessoryWidgetBackground()
+                VStack(spacing: -1) {
+                    Image(systemName: home.fuelSymbol)
+                        .font(.caption2)
+                        .widgetAccentable()
+                    Text(home.wholeDistance(home.sinceRefuel))
+                        .font(.system(.body, design: .rounded, weight: .bold))
+                        .monospacedDigit()
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                    Text(home.unit.distanceLabel)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(3)
+            }
+        }
+    }
+
+    /// The range along the bezel when tracked, the counter otherwise.
+    private var corner: some View {
+        Image(systemName: home.fuelSymbol)
+            .font(.title3.weight(.bold))
+            .widgetAccentable()
+            .widgetLabel {
+                if let gauge = home.gauge {
+                    Gauge(value: gauge.remaining, in: 0...gauge.range) {
+                        EmptyView()
+                    } currentValueLabel: {
+                        EmptyView()
+                    } minimumValueLabel: {
+                        // Same type as the maximum, which carries the range at the end of the arc.
+                        Text("")
+                    } maximumValueLabel: {
+                        Text(Format.range(gauge.remaining, home.unit))
+                    }
+                    .tint(Self.fuelGradient)
+                } else {
+                    Text(Format.range(home.sinceRefuel, home.unit))
+                }
+            }
+    }
+
+    private var rectangular: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Label("Virage", systemImage: "gauge.with.dots.needle.67percent")
+                .font(.caption.weight(.semibold))
+                .widgetAccentable()
+            Label {
+                Text(home.tank.value)
+                    .monospacedDigit()
+            } icon: {
+                Image(systemName: home.fuelSymbol)
+                    .foregroundStyle(home.isFuelLow ? .red : .primary)
+            }
+            .font(.system(.title3, design: .rounded, weight: .semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            Text(home.tank.caption)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text("Mois : \(home.monthCaption)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

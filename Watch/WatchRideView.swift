@@ -487,6 +487,11 @@ private struct TotalsPage: View {
                     .font(.system(.footnote, design: .rounded, weight: .semibold))
                     .foregroundStyle(snapshot.isFuelLow ? .red : .secondary)
                     .monospacedDigit()
+            } else if let sinceRefuel = snapshot.sinceRefuel {
+                Label(Format.distance(sinceRefuel, unit), systemImage: "fuelpump.fill")
+                    .font(.system(.footnote, design: .rounded, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

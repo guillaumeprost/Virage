@@ -1,13 +1,17 @@
+import MapKit
 import SwiftUI
 
 struct DashboardView: View {
     @Environment(RideEngine.self) private var engine
     @Environment(PhoneConnectivity.self) private var connectivity
     @Environment(NavigationController.self) private var navigation
+    @Environment(NowPlaying.self) private var music
     @AppStorage(SpeedUnit.storageKey) private var unit = SpeedUnit.kilometersPerHour
     /// Shared between the four layouts, so each block slides to its new place when the phone rotates or
     /// navigation starts, instead of popping in.
     @Namespace private var layout
+    /// Ties the map's controls, placed by the layouts, to the map.
+    @Namespace private var mapScope
 
     private enum Block: Hashable {
         case status, banner, speed, gauge, metrics, map, button
@@ -15,7 +19,9 @@ struct DashboardView: View {
 
     @State private var isConfirmingEnd = false
     @State private var isShowingFuel = false
+    @State private var isShowingScenic = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dashboardStyle) private var style
 
     var body: some View {
         let snapshot = engine.snapshot
@@ -38,13 +44,17 @@ struct DashboardView: View {
             }
             .animation(.smooth(duration: 0.4), value: isLandscape)
             .animation(.smooth(duration: 0.4), value: navigation.guidance?.route.destination)
+            .animation(.smooth(duration: 0.3), value: music.isVisible)
         }
         // In landscape at rest, every pixel of height counts. During a ride the dashboard covers the tabs anyway.
         .toolbarVisibility(verticalSizeClass == .compact ? .hidden : .automatic, for: .tabBar)
         .persistentSystemOverlays(snapshot.isRiding ? .hidden : .automatic)
-        .background(Color(.systemBackground).ignoresSafeArea())
+        .background(style.background.ignoresSafeArea())
         .sheet(isPresented: $isShowingFuel) {
             FuelSheet()
+        }
+        .sheet(isPresented: $isShowingScenic) {
+            ScenicSheet()
         }
         // Reaching the reserve: felt in the hand, since the badge turning red is easy to miss on the road.
         .sensoryFeedback(.warning, trigger: engine.fuelWarnings)
@@ -75,13 +85,14 @@ struct DashboardView: View {
 
     // MARK: Layouts
 
+    /// The speed takes whatever height the rest leaves: more once the tab bar hides for the ride.
     private func ridePortrait(_ snapshot: RideSnapshot) -> some View {
         VStack(spacing: 20) {
             place(statusBar, .status)
-            place(speed(snapshot, size: 200), .speed)
+            place(FittedSpeedDisplay(snapshot: snapshot, unit: unit, sizes: 140...300), .speed)
             place(LeanGaugeView(snapshot: snapshot), .gauge)
             place(metrics(snapshot), .metrics)
-            Spacer(minLength: 0)
+            musicBar()
             place(rideControls(), .button)
         }
     }
@@ -105,6 +116,7 @@ struct DashboardView: View {
                 place(statusBar, .status)
                 place(LeanGaugeView(snapshot: snapshot, dialHeight: 80), .gauge)
                 place(metrics(snapshot), .metrics)
+                musicBar()
             }
             .frame(maxWidth: 400)
         }
@@ -113,17 +125,21 @@ struct DashboardView: View {
     /// As in Maps: the map fills the screen, the next turn floats on top and the ride sits in a panel below.
     private func navigationPortrait(_ snapshot: RideSnapshot, route: NavigationRoute) -> some View {
         ZStack {
-            map(route, snapshot)
-                // Keeps the rider's position and the map controls clear of the banner and the panel.
-                .safeAreaPadding(.top, navigation.nextStop == nil ? 110 : 160)
-                .safeAreaPadding(.bottom, 170)
-                .ignoresSafeArea()
+            map(route, snapshot, clearance: navigation.nextStop == nil ? 110 : 160, bottom: 170)
             VStack(spacing: 0) {
                 place(banner, .banner)
-                Spacer(minLength: 0)
-                fuelBadge
+                mapControls
                     .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.bottom, 8)
+                    .padding(.top, 10)
+                Spacer(minLength: 0)
+                // The music on the left, the badges on the right: beside them, only the cover and the two
+                // buttons that matter on the road fit.
+                HStack(spacing: 10) {
+                    musicBar(isCompact: true)
+                    Spacer(minLength: 0)
+                    badges
+                }
+                .padding(.bottom, 8)
                 HStack(spacing: 16) {
                     place(speed(snapshot, size: 88), .speed)
                     place(compactMetrics(snapshot), .metrics)
@@ -136,31 +152,39 @@ struct DashboardView: View {
             .padding(.horizontal)
             .padding(.bottom, 8)
         }
+        .mapScope(mapScope)
     }
 
+    /// The speed first: it fills the panel, the rest stays small beneath it. The fuel badge floats over the map,
+    /// out of the panel.
     private func navigationLandscape(_ snapshot: RideSnapshot, route: NavigationRoute) -> some View {
         ZStack(alignment: .topLeading) {
-            map(route, snapshot)
-                .safeAreaPadding(.trailing, 330)
-                .ignoresSafeArea()
+            // The rider just above the badges, bottom left.
+            map(route, snapshot, clearance: 20, bottom: 65, trailing: 330, lift: 45)
             HStack(alignment: .top, spacing: 16) {
-                place(banner, .banner)
-                    .frame(maxWidth: 420)
-                Spacer(minLength: 0)
-                VStack(spacing: 12) {
-                    place(speed(snapshot, size: 110), .speed)
-                    place(compactMetrics(snapshot), .metrics)
-                    fuelBadge
+                VStack(alignment: .leading) {
+                    place(banner, .banner)
+                        .frame(maxWidth: 420)
                     Spacer(minLength: 0)
+                    badges
+                }
+                Spacer(minLength: 0)
+                mapControls
+                // The music joins the panel, off the map; the speed gives up the height it needs.
+                VStack(spacing: 12) {
+                    place(FittedSpeedDisplay(snapshot: snapshot, unit: unit, sizes: 80...160), .speed)
+                    place(compactMetrics(snapshot, horizontal: true), .metrics)
+                    musicBar(showsPrevious: false)
                     place(rideControls(), .button)
                 }
                 .padding(14)
-                .frame(width: 250)
+                .frame(width: 270)
                 .frame(maxHeight: .infinity)
                 .background(.regularMaterial, in: .rect(cornerRadius: 28))
             }
             .padding()
         }
+        .mapScope(mapScope)
     }
 
     private func place(_ content: some View, _ block: Block) -> some View {
@@ -169,13 +193,34 @@ struct DashboardView: View {
 
     // MARK: Blocks
 
-    private func map(_ route: NavigationRoute, _ snapshot: RideSnapshot) -> some View {
-        RideMapView(route: route, position: snapshot.position)
-            .equatable()
+    /// How far above the bottom panel the rider sits: clear of the row of badges and music above it.
+    private static let riderLift: CGFloat = 130
+
+    /// The rider low on the map, just above `bottom`, as in a car's navigation: the road ahead and the
+    /// coming bends fill the screen. MapKit centers the position, and the recentre button, in the safe
+    /// area: a tall inset on top brings that center down. `clearance` is the least the banner needs.
+    private func map(
+        _ route: NavigationRoute,
+        _ snapshot: RideSnapshot,
+        clearance: CGFloat,
+        bottom: CGFloat,
+        trailing: CGFloat = 0,
+        lift: CGFloat = riderLift
+    ) -> some View {
+        GeometryReader { proxy in
+            RideMapView(route: route, position: snapshot.position, controlsScope: mapScope)
+                .equatable()
+                .safeAreaPadding(.top, max(clearance, proxy.size.height - bottom - 2 * lift))
+                .safeAreaPadding(.bottom, bottom)
+                .safeAreaPadding(.trailing, trailing)
+                .ignoresSafeArea()
+        }
+        .ignoresSafeArea()
     }
 
-    private func compactMetrics(_ snapshot: RideSnapshot) -> some View {
-        VStack(spacing: 8) {
+    private func compactMetrics(_ snapshot: RideSnapshot, horizontal: Bool = false) -> some View {
+        let layout = horizontal ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
+        return layout {
             MetricTile(title: "Inclinaison", value: Format.lean(snapshot.leanAngle))
             MetricTile(title: "Distance", value: Format.distance(snapshot.distance, unit))
         }
@@ -188,7 +233,7 @@ struct DashboardView: View {
                     .foregroundStyle(.red)
             }
             Spacer()
-            fuelBadge
+            badges
             if connectivity.isWatchAppInstalled {
                 Image(systemName: connectivity.isWatchReachable ? "applewatch.radiowaves.left.and.right" : "applewatch.slash")
                     .foregroundStyle(connectivity.isWatchReachable ? .green : .secondary)
@@ -197,10 +242,28 @@ struct DashboardView: View {
         .font(.subheadline.weight(.semibold))
     }
 
+    /// Recentre and compass, stacked: placed by each layout clear of the banner and the panel.
+    private var mapControls: some View {
+        VStack(spacing: 10) {
+            MapUserLocationButton(scope: mapScope)
+            MapCompass(scope: mapScope)
+        }
+        .buttonBorderShape(.circle)
+    }
+
+    /// Apple Music, only while it plays.
     @ViewBuilder
-    private var fuelBadge: some View {
-        if let fuel = engine.fuel {
-            FuelBadge(fuel: fuel) { isShowingFuel = true }
+    private func musicBar(isCompact: Bool = false, showsPrevious: Bool = true) -> some View {
+        if music.isVisible {
+            MusicCapsule(music: music, isCompact: isCompact, showsPrevious: showsPrevious)
+        }
+    }
+
+    /// The small badges, side by side: passes and viewpoints, then the tank.
+    private var badges: some View {
+        HStack(spacing: 10) {
+            ScenicBadge { isShowingScenic = true }
+            FuelBadge(sinceRefuel: engine.sinceRefuel, fuel: engine.fuel) { isShowingFuel = true }
         }
     }
 
@@ -219,26 +282,7 @@ struct DashboardView: View {
     }
 
     private func speed(_ snapshot: RideSnapshot, size: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            Text(Format.speed(snapshot.speed, unit))
-                .font(.system(size: size, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .minimumScaleFactor(0.3)
-                .lineLimit(1)
-                .contentTransition(.numericText(value: snapshot.speed))
-                .animation(.snappy, value: Int(unit.speed(snapshot.speed)))
-                .foregroundStyle(snapshot.isPaused ? .secondary : .primary)
-            if snapshot.isPaused {
-                Label("En pause", systemImage: "pause.fill")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(unit.speedLabel)
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity)
+        SpeedDisplay(snapshot: snapshot, unit: unit, size: size)
     }
 
     private func metrics(_ snapshot: RideSnapshot) -> some View {
@@ -266,7 +310,7 @@ struct DashboardView: View {
                     systemImage: engine.snapshot.isPaused ? "play.fill" : "pause.fill",
                     label: engine.snapshot.isPaused ? "Reprendre" : "Pause",
                     foreground: .primary,
-                    background: Color(.tertiarySystemFill)
+                    background: style == .classic ? Color(.tertiarySystemFill) : Color.primary.opacity(0.1)
                 ) {
                     engine.setPaused(!engine.snapshot.isPaused)
                 }
@@ -282,10 +326,13 @@ struct DashboardView: View {
                 engine.startRide()
             } label: {
                 Label("Démarrer un trajet", systemImage: "play.fill")
-                    .font(.title3.weight(.bold))
+                    .font(style.figureFont(.title3.weight(.bold), size: 20, relativeTo: .title3))
+                    .styledDigits(style)
+                    .foregroundStyle(style.onTint)
                     .frame(maxWidth: .infinity, minHeight: 56)
             }
             .buttonStyle(.borderedProminent)
+            .buttonBorderShape(style == .sport ? .roundedRectangle(radius: 12) : .capsule)
             .sensoryFeedback(.impact(weight: .heavy), trigger: engine.snapshot.isRiding)
         }
     }
@@ -316,21 +363,31 @@ private struct RoundButton: View {
 struct MetricTile: View {
     let title: LocalizedStringKey
     let value: String
+    @Environment(\.dashboardStyle) private var style
 
     var body: some View {
         VStack(spacing: 4) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .font(style.labelFont(.caption.weight(.semibold), size: 13, relativeTo: .caption))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
+                .tracking(style == .retro ? 1 : 0)
             Text(value)
-                .font(.headline)
+                .font(style.figureFont(.headline, size: 18, relativeTo: .headline))
+                .styledDigits(style)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+        .background {
+            let shape = RoundedRectangle(cornerRadius: style == .sport ? 8 : 12)
+            if style == .classic {
+                shape.fill(Color(.secondarySystemBackground))
+            } else {
+                shape.strokeBorder(style.outline, lineWidth: 1)
+            }
+        }
     }
 }

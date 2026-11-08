@@ -44,10 +44,52 @@ enum FuelSettings {
         guard defaults.bool(forKey: enabledKey) else { return nil }
         let range = (defaults.object(forKey: rangeKey) as? Double ?? defaultRangeKilometers) * 1_000
         let reserve = (defaults.object(forKey: reserveKey) as? Double ?? defaultReserveKilometers) * 1_000
-        return FuelGauge(range: range, reserve: min(reserve, range), sinceRefuel: defaults.double(forKey: sinceRefuelKey))
+        return FuelGauge(range: range, reserve: min(reserve, range), sinceRefuel: loadSinceRefuel(from: defaults))
+    }
+
+    static func loadSinceRefuel(from defaults: UserDefaults = .standard) -> Double {
+        defaults.double(forKey: sinceRefuelKey)
     }
 
     static func save(sinceRefuel: Double, to defaults: UserDefaults = .standard) {
         defaults.set(sinceRefuel, forKey: sinceRefuelKey)
+    }
+}
+
+/// The kilometers since the fill-up, counted with or without a tracked tank, and kept on disk every few hundred
+/// meters rather than at every fix: losing a few hundred meters to a crash is fine for a trip counter.
+struct RefuelOdometer {
+    static let saveInterval = 500.0
+
+    private(set) var meters: Double
+    /// The count as last written.
+    private var saved: Double
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        meters = FuelSettings.loadSinceRefuel(from: defaults)
+        saved = meters
+    }
+
+    mutating func add(_ distance: Double) {
+        guard distance > 0 else { return }
+        meters += distance
+        if meters - saved >= Self.saveInterval {
+            save()
+        }
+    }
+
+    /// At the pump: back to zero, written at once.
+    mutating func reset() {
+        meters = 0
+        save()
+    }
+
+    /// At a pause, the end of a ride, or when the app leaves the screen.
+    mutating func save() {
+        guard meters != saved else { return }
+        FuelSettings.save(sinceRefuel: meters, to: defaults)
+        saved = meters
     }
 }
